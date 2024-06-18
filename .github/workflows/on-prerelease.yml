@@ -239,17 +239,17 @@ jobs:
           if [[ $PACKAGEVERSION =~ "alpha" ]]
           then
             # Pre-releases get the tag "pre"
-            APITAGS="${{ env.IMAGE_NAME }}:pre"
+            DMSTAGS="${{ env.IMAGE_NAME }}:pre"
           else
             # Releases get the version, plus shortened form for minor release.
             # We are not using shortened form for major or using "latest"
             # because they are too imprecise.
             MINOR=`echo ${PACKAGEVERSION} | awk -F"." '{print $1"."$2}'`
-            APITAGS="${{ env.IMAGE_NAME }}:${PACKAGEVERSION},${{ env.IMAGE_NAME }}:${MINOR}"
+            DMSTAGS="${{ env.IMAGE_NAME }}:${PACKAGEVERSION},${{ env.IMAGE_NAME }}:${MINOR}"
           fi
 
           SEMVERSION=${PACKAGEVERSION}  # strip off the leading 'v'
-          echo "APITAGS=$APITAGS" >> $GITHUB_OUTPUT
+          echo "DMSTAGS=$DMSTAGS" >> $GITHUB_OUTPUT
           echo "VERSION=$SEMVERSION" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
@@ -261,8 +261,8 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_HUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for admin api image
-        id: metaapi
+      - name: Extract metadata (tags, labels) for Data Management Service image
+        id: metadatamanagementservice
         uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934  # v5.0.0
         with:
           images: ${{ env.IMAGE_NAME }}
@@ -275,6 +275,6 @@ jobs:
           cache-to: type=inline
           build-args: VERSION=${{ steps.prepare-tags.outputs.VERSION }}
           file: Nuget.Dockerfile
-          tags: ${{ steps.prepare-tags.outputs.APITAGS }}
-          labels: ${{ steps.metaapi.outputs.labels }}
+          tags: ${{ steps.prepare-tags.outputs.DMSTAGS }}
+          labels: ${{ steps.metadatamanagementservice.outputs.labels }}
           push: true
