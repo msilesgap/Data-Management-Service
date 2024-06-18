@@ -204,21 +204,21 @@ jobs:
       - name: Install-credential-handler
         run: iex "& { $(irm https://aka.ms/install-artifacts-credprovider.ps1) } -AddNetfx"
 
-      - name: Push Package to Azure Artifacts
+      #- name: Push Package to Azure Artifacts
         # TODO Do we need this 2 lines that were inside the run
         # Import-Module ./github-builder.psm1
         # Invoke-NuGetPush -NuGetFeed ${{ env.ARTIFACTS_FEED_URL }} -NuGetApiKey ${{ env.ARTIFACTS_API_KEY }}
-        run: |
-          $artifact = (Get-ChildItem -Path $_ -Name -Include *.nupkg)
-          $arguments = @{
-            EdFiNuGetFeed = "${{ env.ARTIFACTS_FEED_URL }}"
-            NuGetApiKey = "${{ env.ARTIFACTS_API_KEY }}"
-          }
+        #run: |
+         # $artifact = (Get-ChildItem -Path $_ -Name -Include *.nupkg)
+         # $arguments = @{
+         #   EdFiNuGetFeed = "${{ env.ARTIFACTS_FEED_URL }}"
+         #   NuGetApiKey = "${{ env.ARTIFACTS_API_KEY }}"
+         # }
 
-          $artifact | ForEach-Object {
-              $arguments.PackageFile = $_
-              ./build.ps1 Push @arguments
-           }
+         # $artifact | ForEach-Object {
+         #     $arguments.PackageFile = $_
+         #     ./build.ps1 Push @arguments
+         #  }
 
   docker-publish:
     name: Publish to Docker Hub
