@@ -234,32 +234,22 @@ jobs:
         id: prepare-tags
         run: |
           REF="${{ env.REF }}"
-          if [[ $REF =~ "Pre-Release" ]]
-          then
-             # Remove Pre-Release prefix
-             PREFIX="Pre-Release-"
-             PACKAGEVERSION=${REF#"$PREFIX"}
-          else
-             PACKAGEVERSION=${REF}
-          fi
+          PACKAGEVERSION=${REF}
 
           if [[ $PACKAGEVERSION =~ "alpha" ]]
           then
             # Pre-releases get the tag "pre"
             APITAGS="${{ env.IMAGE_NAME }}:pre"
-            DBTAGS="${{ env.DATABASE_IMAGE_NAME }}:pre"
           else
             # Releases get the version, plus shortened form for minor release.
             # We are not using shortened form for major or using "latest"
             # because they are too imprecise.
             MINOR=`echo ${PACKAGEVERSION} | awk -F"." '{print $1"."$2}'`
             APITAGS="${{ env.IMAGE_NAME }}:${PACKAGEVERSION},${{ env.IMAGE_NAME }}:${MINOR}"
-            DBTAGS="${{ env.DATABASE_IMAGE_NAME }}:${PACKAGEVERSION},${{ env.DATABASE_IMAGE_NAME }}:${MINOR}"
           fi
 
-          SEMVERSION=${PACKAGEVERSION:1}  # strip off the leading 'v'
+          SEMVERSION=${PACKAGEVERSION}  # strip off the leading 'v'
           echo "APITAGS=$APITAGS" >> $GITHUB_OUTPUT
-          echo "DBTAGS=$DBTAGS" >> $GITHUB_OUTPUT
           echo "VERSION=$SEMVERSION" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
@@ -277,14 +267,14 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
 
-      - name: Build and push admin api image
+      - name: Build and push DMS image
         uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09  # v5.0.0
         with:
-          context: "{{defaultContext}}:Docker"
+          context: "{{defaultContext}}:src"
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:pre
           cache-to: type=inline
           build-args: VERSION=${{ steps.prepare-tags.outputs.VERSION }}
-          file: api.Dockerfile
+          file: Nuget.Dockerfile
           tags: ${{ steps.prepare-tags.outputs.APITAGS }}
           labels: ${{ steps.metaapi.outputs.labels }}
           push: true
