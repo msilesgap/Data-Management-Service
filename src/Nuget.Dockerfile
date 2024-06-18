@@ -13,7 +13,8 @@ ARG VERSION=0.0.0-alpha.0.8
 WORKDIR /app
 
 RUN umask 0077 && \
-    wget -O /app/EdFi.DataManagementService.zip "https://pkgs.dev.azure.com/ed-fi-alliance/Ed-Fi-Alliance-OSS/_apis/packaging/feeds/EdFi/nuget/packages/EdFi.DataManagementService/versions/${VERSION}/content" && \
+    #wget -O /app/EdFi.DataManagementService.zip "https://pkgs.dev.azure.com/ed-fi-alliance/Ed-Fi-Alliance-OSS/_apis/packaging/feeds/EdFi/nuget/packages/EdFi.DataManagementService/versions/${VERSION}/content" && \
+    wget -O /app/EdFi.DataManagementService.zip "https://pkgs.dev.azure.com/ed-fi-alliance/Ed-Fi-Alliance-OSS/_apis/packaging/feeds/EdFi/nuget/packages/EdFi.DataManagementService/versions/0.0.0-alpha.0.8/content" && \
     unzip /app/EdFi.DataManagementService.zip -d /app/ && \
     rm -f /app/EdFi.DataManagementService.zip && \
     chmod 700 /app/* -- **
