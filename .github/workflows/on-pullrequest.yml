@@ -134,6 +134,8 @@ jobs:
     name: Run E2E Tests
     needs: run-unit-tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         shell: pwsh
@@ -182,7 +184,7 @@ jobs:
           allure_history: allure-history
           allure_results: build/allure-results
 
-      - name: Publish test report
+      - name: Publish Allure Test Report
         uses: peaceiris/actions-gh-pages@v3
         if: always()
         with:
