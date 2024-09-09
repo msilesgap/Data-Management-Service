@@ -186,7 +186,8 @@ jobs:
       actions: read
       id-token: write
       contents: write
-    uses: Ed-Fi-Alliance-OSS/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@main
+    #uses: Ed-Fi-Alliance-OSS/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@main
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
     with:
       base64-subjects: ${{ needs.pack.outputs.hash-code }}
       provenance-name: dmsApi.intoto.jsonl
@@ -194,92 +195,92 @@ jobs:
       # TODO: remove this after this issue is resolved: https://github.com/slsa-framework/slsa-github-generator/issues/876
       compile-generator: true
 
-  publish-package:
-    name: Publish NuGet Package
-    needs: pack
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: pwsh
-    steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+  # publish-package:
+  #   name: Publish NuGet Package
+  #   needs: pack
+  #   runs-on: ubuntu-latest
+  #   defaults:
+  #     run:
+  #       shell: pwsh
+  #   steps:
+  #     - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Get Artifact
-        uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 #4.1.1
-        with:
-          name: ${{ env.PACKAGE_NAME }}-NuGet
+  #     - name: Get Artifact
+  #       uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 #4.1.1
+  #       with:
+  #         name: ${{ env.PACKAGE_NAME }}-NuGet
 
-      - name: Install-credential-handler
-        run: iex "& { $(irm https://aka.ms/install-artifacts-credprovider.ps1) } -AddNetfx"
+  #     - name: Install-credential-handler
+  #       run: iex "& { $(irm https://aka.ms/install-artifacts-credprovider.ps1) } -AddNetfx"
 
-      - name: Push Package to Azure Artifacts
-        run: |
-         $artifact = (Get-ChildItem -Path $_ -Name -Include *.nupkg)
-         $arguments = @{
-           EdFiNuGetFeed = "${{ env.ARTIFACTS_FEED_URL }}"
-           NuGetApiKey = "${{ env.ARTIFACTS_API_KEY }}"
-         }
+  #     - name: Push Package to Azure Artifacts
+  #       run: |
+  #        $artifact = (Get-ChildItem -Path $_ -Name -Include *.nupkg)
+  #        $arguments = @{
+  #          EdFiNuGetFeed = "${{ env.ARTIFACTS_FEED_URL }}"
+  #          NuGetApiKey = "${{ env.ARTIFACTS_API_KEY }}"
+  #        }
 
-         $artifact | ForEach-Object {
-             $arguments.PackageFile = $_
-             ./build.ps1 Push @arguments
-          }
+  #        $artifact | ForEach-Object {
+  #            $arguments.PackageFile = $_
+  #            ./build.ps1 Push @arguments
+  #         }
 
-  docker-publish:
-    name: Publish to Docker Hub
-    runs-on: ubuntu-latest
-    needs:
-      - publish-package
-    steps:
-      - name: Wait 20s
-        # Give Azure Artifacts caching a moment to catch up
-        run: sleep 20
+  # docker-publish:
+  #   name: Publish to Docker Hub
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - publish-package
+  #   steps:
+  #     - name: Wait 20s
+  #       # Give Azure Artifacts caching a moment to catch up
+  #       run: sleep 20
 
-      - name: Prepare Tags
-        id: prepare-tags
-        run: |
-          REF="${{ env.REF }}"
-          PACKAGEVERSION=${REF}
+  #     - name: Prepare Tags
+  #       id: prepare-tags
+  #       run: |
+  #         REF="${{ env.REF }}"
+  #         PACKAGEVERSION=${REF}
 
-          if [[ $PACKAGEVERSION =~ "alpha" ]]
-          then
-            # Pre-releases get the tag "pre"
-            DMSTAGS="${{ env.IMAGE_NAME }}:pre"
-          else
-            # Releases get the version, plus shortened form for minor release.
-            # We are not using shortened form for major or using "latest"
-            # because they are too imprecise.
-            MINOR=`echo ${PACKAGEVERSION} | awk -F"." '{print $1"."$2}'`
-            DMSTAGS="${{ env.IMAGE_NAME }}:${PACKAGEVERSION},${{ env.IMAGE_NAME }}:${MINOR}"
-          fi
+  #         if [[ $PACKAGEVERSION =~ "alpha" ]]
+  #         then
+  #           # Pre-releases get the tag "pre"
+  #           DMSTAGS="${{ env.IMAGE_NAME }}:pre"
+  #         else
+  #           # Releases get the version, plus shortened form for minor release.
+  #           # We are not using shortened form for major or using "latest"
+  #           # because they are too imprecise.
+  #           MINOR=`echo ${PACKAGEVERSION} | awk -F"." '{print $1"."$2}'`
+  #           DMSTAGS="${{ env.IMAGE_NAME }}:${PACKAGEVERSION},${{ env.IMAGE_NAME }}:${MINOR}"
+  #         fi
 
-          SEMVERSION=${PACKAGEVERSION}  # strip off the leading 'v'
-          echo "DMSTAGS=$DMSTAGS" >> $GITHUB_OUTPUT
-          echo "VERSION=$SEMVERSION" >> $GITHUB_OUTPUT
+  #         SEMVERSION=${PACKAGEVERSION}  # strip off the leading 'v'
+  #         echo "DMSTAGS=$DMSTAGS" >> $GITHUB_OUTPUT
+  #         echo "VERSION=$SEMVERSION" >> $GITHUB_OUTPUT
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226  # v3.0.0
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226  # v3.0.0
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d  # v3.0.0
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_HUB_TOKEN }}
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d  # v3.0.0
+  #       with:
+  #         username: ${{ env.DOCKER_USERNAME }}
+  #         password: ${{ env.DOCKER_HUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Data Management Service image
-        id: metadatamanagementservice
-        uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934  # v5.0.0
-        with:
-          images: ${{ env.IMAGE_NAME }}
+  #     - name: Extract metadata (tags, labels) for Data Management Service image
+  #       id: metadatamanagementservice
+  #       uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934  # v5.0.0
+  #       with:
+  #         images: ${{ env.IMAGE_NAME }}
 
-      - name: Build and push DMS image
-        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09  # v5.0.0
-        with:
-          context: "{{defaultContext}}:src"
-          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:pre
-          cache-to: type=inline
-          build-args: VERSION=${{ steps.prepare-tags.outputs.VERSION }}
-          file: Nuget.Dockerfile
-          tags: ${{ steps.prepare-tags.outputs.DMSTAGS }}
-          labels: ${{ steps.metadatamanagementservice.outputs.labels }}
-          push: true
+  #     - name: Build and push DMS image
+  #       uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09  # v5.0.0
+  #       with:
+  #         context: "{{defaultContext}}:src"
+  #         cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:pre
+  #         cache-to: type=inline
+  #         build-args: VERSION=${{ steps.prepare-tags.outputs.VERSION }}
+  #         file: Nuget.Dockerfile
+  #         tags: ${{ steps.prepare-tags.outputs.DMSTAGS }}
+  #         labels: ${{ steps.metadatamanagementservice.outputs.labels }}
+  #         push: true
