@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 using EdFi.DataManagementService.Core.External.Backend;
+using EdFi.DataManagementService.Core.External.Model;
 using FluentAssertions;
 using Npgsql;
 using NUnit.Framework;
@@ -14,6 +15,8 @@ namespace EdFi.DataManagementService.Backend.Postgresql.Test.Integration;
 public class DeleteTests : DatabaseTest
 {
     private static readonly string _defaultResourceName = "DefaultResourceName";
+
+    private static TraceId traceId = new("");
 
     [TestFixture]
     public class Given_a_delete_of_a_non_existing_document : DeleteTests
@@ -26,8 +29,7 @@ public class DeleteTests : DatabaseTest
         public async Task Setup()
         {
             IDeleteRequest deleteRequest = CreateDeleteRequest(_defaultResourceName, _documentUuidGuid);
-            _deleteResult = await CreateDeleteById()
-                .DeleteById(deleteRequest, Connection!, Transaction!);
+            _deleteResult = await CreateDeleteById().DeleteById(deleteRequest, Connection!, Transaction!);
         }
 
         [Test]
@@ -56,11 +58,10 @@ public class DeleteTests : DatabaseTest
                 _referentialIdGuid,
                 _edFiDocString
             );
-            await CreateUpsert().Upsert(upsertRequest, Connection!, Transaction!);
+            await CreateUpsert().Upsert(upsertRequest, Connection!, Transaction!, traceId);
 
             IDeleteRequest deleteRequest = CreateDeleteRequest(_defaultResourceName, _documentUuidGuid);
-            _deleteResult = await CreateDeleteById()
-                .DeleteById(deleteRequest, Connection!, Transaction!);
+            _deleteResult = await CreateDeleteById().DeleteById(deleteRequest, Connection!, Transaction!);
         }
 
         [Test]
@@ -93,7 +94,7 @@ public class DeleteTests : DatabaseTest
                         _referentialIdGuid,
                         _edFiDocString
                     );
-                    await CreateUpsert().Upsert(upsertRequest, connection, transaction);
+                    await CreateUpsert().Upsert(upsertRequest, connection, transaction, traceId);
                 },
                 async (NpgsqlConnection connection, NpgsqlTransaction transaction) =>
                 {
@@ -123,9 +124,9 @@ public class DeleteTests : DatabaseTest
         }
 
         [Test]
-        public void It_should_be_a_write_conflict_for_2nd_transaction()
+        public void It_should_be_not_exists_for_2nd_transaction_due_to_retry()
         {
-            _deleteResult2!.Should().BeOfType<DeleteResult.DeleteFailureWriteConflict>();
+            _deleteResult2!.Should().BeOfType<DeleteResult.DeleteFailureNotExists>();
         }
     }
 
@@ -153,7 +154,7 @@ public class DeleteTests : DatabaseTest
                         _referentialIdGuid,
                         _edFiDocString1
                     );
-                    await CreateUpsert().Upsert(upsertRequest, connection, transaction);
+                    await CreateUpsert().Upsert(upsertRequest, connection, transaction, traceId);
                 },
                 async (NpgsqlConnection connection, NpgsqlTransaction transaction) =>
                 {
@@ -172,7 +173,7 @@ public class DeleteTests : DatabaseTest
                         _referentialIdGuid,
                         _edFiDocString2
                     );
-                    return await CreateUpdate().UpdateById(updateRequest, connection, transaction);
+                    return await CreateUpdate().UpdateById(updateRequest, connection, transaction, traceId);
                 }
             );
         }
@@ -184,9 +185,9 @@ public class DeleteTests : DatabaseTest
         }
 
         [Test]
-        public void It_should_be_an_update_write_conflict_for_2nd_transaction()
+        public void It_should_be_an_update_not_exists_for_2nd_transaction_due_to_retry()
         {
-            _updateResult.Should().BeOfType<UpdateResult.UpdateFailureWriteConflict>();
+            _updateResult.Should().BeOfType<UpdateResult.UpdateFailureNotExists>();
         }
     }
 
@@ -214,7 +215,7 @@ public class DeleteTests : DatabaseTest
                         _referentialIdGuid,
                         _edFiDocString1
                     );
-                    await CreateUpsert().Upsert(upsertRequest, connection, transaction);
+                    await CreateUpsert().Upsert(upsertRequest, connection, transaction, traceId);
                 },
                 async (NpgsqlConnection connection, NpgsqlTransaction transaction) =>
                 {
@@ -224,7 +225,7 @@ public class DeleteTests : DatabaseTest
                         _referentialIdGuid,
                         _edFiDocString2
                     );
-                    return await CreateUpdate().UpdateById(updateRequest, connection, transaction);
+                    return await CreateUpdate().UpdateById(updateRequest, connection, transaction, traceId);
                 },
                 async (NpgsqlConnection connection, NpgsqlTransaction transaction) =>
                 {
@@ -245,9 +246,9 @@ public class DeleteTests : DatabaseTest
         }
 
         [Test]
-        public void It_should_be_a_delete_write_conflict_for_2nd_transaction()
+        public void It_should_be_a_successful_delete_for_2nd_transaction_due_to_retry()
         {
-            _deleteResult.Should().BeOfType<DeleteResult.DeleteFailureWriteConflict>();
+            _deleteResult.Should().BeOfType<DeleteResult.DeleteSuccess>();
         }
     }
 
@@ -275,7 +276,7 @@ public class DeleteTests : DatabaseTest
                         _referentialIdGuid,
                         _edFiDocString1
                     );
-                    await CreateUpsert().Upsert(upsertRequest, connection, transaction);
+                    await CreateUpsert().Upsert(upsertRequest, connection, transaction, traceId);
                 },
                 async (NpgsqlConnection connection, NpgsqlTransaction transaction) =>
                 {
@@ -294,7 +295,7 @@ public class DeleteTests : DatabaseTest
                         _referentialIdGuid,
                         _edFiDocString2
                     );
-                    return await CreateUpsert().Upsert(upsertRequest, connection, transaction);
+                    return await CreateUpsert().Upsert(upsertRequest, connection, transaction, traceId);
                 }
             );
         }
@@ -306,9 +307,9 @@ public class DeleteTests : DatabaseTest
         }
 
         [Test]
-        public void It_should_be_an_update_write_conflict_for_2nd_transaction()
+        public void It_should_be_a_successful_insert_for_2nd_transaction_due_to_retry()
         {
-            _upsertResult.Should().BeOfType<UpsertResult.UpsertFailureWriteConflict>();
+            _upsertResult.Should().BeOfType<UpsertResult.InsertSuccess>();
         }
     }
 
@@ -336,7 +337,7 @@ public class DeleteTests : DatabaseTest
                         _referentialIdGuid,
                         _edFiDocString1
                     );
-                    await CreateUpsert().Upsert(upsertRequest, connection, transaction);
+                    await CreateUpsert().Upsert(upsertRequest, connection, transaction, traceId);
                 },
                 async (NpgsqlConnection connection, NpgsqlTransaction transaction) =>
                 {
@@ -346,7 +347,7 @@ public class DeleteTests : DatabaseTest
                         _referentialIdGuid,
                         _edFiDocString2
                     );
-                    return await CreateUpsert().Upsert(upsertRequest, connection, transaction);
+                    return await CreateUpsert().Upsert(upsertRequest, connection, transaction, traceId);
                 },
                 async (NpgsqlConnection connection, NpgsqlTransaction transaction) =>
                 {
@@ -367,17 +368,245 @@ public class DeleteTests : DatabaseTest
         }
 
         [Test]
-        public void It_should_be_a_delete_write_conflict_for_2nd_transaction()
+        public void It_should_be_a_successful_delete_for_2nd_transaction_due_to_retry()
         {
-            _deleteResult.Should().BeOfType<DeleteResult.DeleteFailureWriteConflict>();
+            _deleteResult.Should().BeOfType<DeleteResult.DeleteSuccess>();
         }
     }
 
-    // Future tests - from Meadowlark
+    [TestFixture]
+    public class Given_the_delete_of_a_document_referenced_by_another_document : DeleteTests
+    {
+        private DeleteResult? _deleteResult;
+        private List<UpsertResult> _upsertResults;
 
-    // given the delete of a document referenced by another document
+        private static readonly string _referencedResourceName = "ReferencedResource";
+        private static readonly Guid _resourcedDocUuidGuid = Guid.NewGuid();
+        private static readonly Guid _referencedRefIdGuid = Guid.NewGuid();
+        private static readonly string _referencedDocString = """{"abc":1}""";
 
-    // given the delete of a document with outbound reference only
+        private static readonly string _referencingResourceName = "ReferencingResource";
+        private static readonly Guid _documentUuidGuid = Guid.NewGuid();
+        private static readonly Guid _referentialIdGuid = Guid.NewGuid();
+        private static readonly string _edFiDocString = """{"abc":2}""";
 
-    // given delete of a subclass document referenced by another document as a superclass
+        [SetUp]
+        public async Task Setup()
+        {
+            _upsertResults = new List<UpsertResult>();
+            IUpsertRequest refUpsertRequest = CreateUpsertRequest(
+                _referencedResourceName,
+                _resourcedDocUuidGuid,
+                _referencedRefIdGuid,
+                _referencedDocString
+            );
+            _upsertResults.Add(
+                await CreateUpsert().Upsert(refUpsertRequest, Connection!, Transaction!, traceId)
+            );
+
+            // Add references
+            Reference[] references = [new(_referencingResourceName, _referencedRefIdGuid)];
+
+            IUpsertRequest upsertRequest = CreateUpsertRequest(
+                _referencingResourceName,
+                _documentUuidGuid,
+                _referentialIdGuid,
+                _edFiDocString,
+                CreateDocumentReferences(references)
+            );
+
+            _upsertResults.Add(
+                await CreateUpsert().Upsert(upsertRequest, Connection!, Transaction!, traceId)
+            );
+
+            await Transaction!.CommitAsync();
+            Transaction = await Connection!.BeginTransactionAsync(ConfiguredIsolationLevel);
+
+            _deleteResult = await CreateDeleteById()
+                .DeleteById(
+                    CreateDeleteRequest(_referencedResourceName, _resourcedDocUuidGuid),
+                    Connection!,
+                    Transaction!
+                );
+        }
+
+        [Test]
+        public void It_should_be_a_successful_inserts()
+        {
+            _upsertResults.Should().HaveCount(2);
+            _upsertResults.ForEach(x => x.Should().BeOfType<UpsertResult.InsertSuccess>());
+        }
+
+        [Test]
+        public void It_should_be_a_delete_failure_reference()
+        {
+            _deleteResult.Should().BeOfType<DeleteResult.DeleteFailureReference>();
+        }
+
+        [Test]
+        public void It_should_be_equal_to_referencing_resource_name()
+        {
+            var result = _deleteResult as DeleteResult.DeleteFailureReference;
+            result.Should().NotBeNull();
+            result?.ReferencingDocumentResourceNames.Should().NotBeNull();
+            result?.ReferencingDocumentResourceNames.Should().Contain(_referencingResourceName);
+        }
+    }
+
+    [TestFixture]
+    public class Given_the_delete_of_a_document_with_outbound_reference_only : DeleteTests
+    {
+        private DeleteResult? _deleteResult;
+        private List<UpsertResult> _upsertResults;
+
+        private static readonly string _referencedResourceName = "ReferencedResource";
+        private static readonly Guid _resourcedDocUuidGuid = Guid.NewGuid();
+        private static readonly Guid _referencedRefIdGuid = Guid.NewGuid();
+        private static readonly string _referencedDocString = """{"abc":1}""";
+
+        private static readonly string _referencingResourceName = "ReferencingResource";
+        private static readonly Guid _documentUuidGuid = Guid.NewGuid();
+        private static readonly Guid _referentialIdGuid = Guid.NewGuid();
+        private static readonly string _edFiDocString = """{"abc":2}""";
+
+        [SetUp]
+        public async Task Setup()
+        {
+            _upsertResults = new List<UpsertResult>();
+            IUpsertRequest refUpsertRequest = CreateUpsertRequest(
+                _referencedResourceName,
+                _resourcedDocUuidGuid,
+                _referencedRefIdGuid,
+                _referencedDocString
+            );
+            _upsertResults.Add(
+                await CreateUpsert().Upsert(refUpsertRequest, Connection!, Transaction!, traceId)
+            );
+
+            // Add references
+            Reference[] references = [new(_referencingResourceName, _referencedRefIdGuid)];
+
+            IUpsertRequest upsertRequest = CreateUpsertRequest(
+                _referencingResourceName,
+                _documentUuidGuid,
+                _referentialIdGuid,
+                _edFiDocString,
+                CreateDocumentReferences(references)
+            );
+
+            _upsertResults.Add(
+                await CreateUpsert().Upsert(upsertRequest, Connection!, Transaction!, traceId)
+            );
+
+            await Transaction!.CommitAsync();
+            Transaction = await Connection!.BeginTransactionAsync(ConfiguredIsolationLevel);
+
+            _deleteResult = await CreateDeleteById()
+                .DeleteById(
+                    CreateDeleteRequest(_referencingResourceName, _documentUuidGuid),
+                    Connection!,
+                    Transaction!
+                );
+        }
+
+        [Test]
+        public void It_should_be_a_successful_inserts()
+        {
+            _upsertResults.Should().HaveCount(2);
+            _upsertResults.ForEach(x => x.Should().BeOfType<UpsertResult.InsertSuccess>());
+        }
+
+        [Test]
+        public void It_should_be_a_delete_success()
+        {
+            _deleteResult.Should().BeOfType<DeleteResult.DeleteSuccess>();
+        }
+    }
+
+    [TestFixture]
+    public class Given_delete_of_a_subclass_document_referenced_by_another_document_as_a_superclass
+        : DeleteTests
+    {
+        private DeleteResult? _deleteResult;
+        private List<UpsertResult> _upsertResults;
+
+        private static readonly string _subclassName = "SubClass";
+        private static readonly Guid _subClassDocumentUuidGuid = Guid.NewGuid();
+        private static readonly Guid _subClassRefIdGuid = Guid.NewGuid();
+        private static readonly string _subClassDocString = """{"abc":1}""";
+
+        private static readonly string _superClassName = "SuperClass";
+        private static readonly Guid _superClassReferentialIdGuid = Guid.NewGuid();
+
+        private static readonly string _referencingClassName = "Class";
+        private static readonly Guid _documentUuidGuid = Guid.NewGuid();
+        private static readonly Guid _referentialIdGuid = Guid.NewGuid();
+        private static readonly string _edFiDocString = """{"abc":2}""";
+
+        [SetUp]
+        public async Task Setup()
+        {
+            _upsertResults = new List<UpsertResult>();
+            IUpsertRequest subClassUpsertRequest = CreateUpsertRequest(
+                _subclassName,
+                _subClassDocumentUuidGuid,
+                _subClassRefIdGuid,
+                _subClassDocString,
+                null,
+                null,
+                CreateSuperclassIdentity(_superClassName, _superClassReferentialIdGuid)
+            );
+            _upsertResults.Add(
+                await CreateUpsert().Upsert(subClassUpsertRequest, Connection!, Transaction!, traceId)
+            );
+
+            // Add references
+            Reference[] references = [new(_referencingClassName, _superClassReferentialIdGuid)];
+
+            IUpsertRequest upsertRequest = CreateUpsertRequest(
+                _referencingClassName,
+                _documentUuidGuid,
+                _referentialIdGuid,
+                _edFiDocString,
+                CreateDocumentReferences(references)
+            );
+
+            _upsertResults.Add(
+                await CreateUpsert().Upsert(upsertRequest, Connection!, Transaction!, traceId)
+            );
+
+            await Transaction!.CommitAsync();
+
+            Transaction = await Connection!.BeginTransactionAsync(ConfiguredIsolationLevel);
+
+            _deleteResult = await CreateDeleteById()
+                .DeleteById(
+                    CreateDeleteRequest(_subclassName, _subClassDocumentUuidGuid),
+                    Connection!,
+                    Transaction!
+                );
+        }
+
+        [Test]
+        public void It_should_be_a_successful_inserts()
+        {
+            _upsertResults.Should().HaveCount(2);
+            _upsertResults.ForEach(x => x.Should().BeOfType<UpsertResult.InsertSuccess>());
+        }
+
+        [Test]
+        public void It_should_be_a_delete_failure_reference()
+        {
+            _deleteResult.Should().BeOfType<DeleteResult.DeleteFailureReference>();
+        }
+
+        [Test]
+        public void It_should_be_equal_to_referencing_resource_name()
+        {
+            var result = _deleteResult as DeleteResult.DeleteFailureReference;
+            result.Should().NotBeNull();
+            result?.ReferencingDocumentResourceNames.Should().NotBeNull();
+            result?.ReferencingDocumentResourceNames.Should().Contain(_referencingClassName);
+        }
+    }
 }

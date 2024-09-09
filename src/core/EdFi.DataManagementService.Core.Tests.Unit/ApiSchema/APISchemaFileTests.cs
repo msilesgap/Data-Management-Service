@@ -6,13 +6,16 @@
 using System.Text.Json.Nodes;
 using EdFi.DataManagementService.Core.ApiSchema;
 using EdFi.DataManagementService.Core.Backend;
+using EdFi.DataManagementService.Core.Configuration;
 using EdFi.DataManagementService.Core.External.Frontend;
 using EdFi.DataManagementService.Core.External.Model;
 using EdFi.DataManagementService.Core.Validation;
 using FakeItEasy;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NUnit.Framework;
+using Polly;
 
 namespace EdFi.DataManagementService.Core.Tests.Unit.ApiSchema;
 
@@ -41,7 +44,12 @@ public class APISchemaFileTests
                 new SuccessDocumentStoreRepository(NullLogger<SuccessDocumentStoreRepository>.Instance),
                 new MatchingDocumentUuidsValidator(),
                 new EqualityConstraintValidator(),
-                NullLogger<ApiService>.Instance
+                NullLogger<ApiService>.Instance,
+                Options.Create(new AppSettings
+                {
+                    AllowIdentityUpdateOverrides = ""
+                }),
+                ResiliencePipeline.Empty
             );
         }
 

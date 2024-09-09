@@ -18,6 +18,8 @@
           do not connect to a database.
         * E2ETest: executes NUnit tests in projects named `*.E2ETests`, which
           runs the API in an isolated Docker environment and executes API Calls .
+        * IntegrationTest: executes NUnit test in projects named `*.IntegrationTests`,
+          which connect to a database.
         * BuildAndPublish: build and publish with `dotnet publish`
         * Package: builds pre-release and release NuGet packages for the Dms API application.
         * Push: uploads a NuGet package to the NuGet feed.
@@ -42,7 +44,7 @@
 param(
     # Command to execute, defaults to "Build".
     [string]
-    [ValidateSet("Clean", "Build", "BuildAndPublish", "UnitTest", "E2ETest", "Coverage", "Package", "Push", "DockerBuild", "DockerRun", "Run")]
+    [ValidateSet("Clean", "Build", "BuildAndPublish", "UnitTest", "E2ETest", "IntegrationTest", "Coverage", "Package", "Push", "DockerBuild", "DockerRun", "Run")]
     $Command = "Build",
 
     # Assembly and package version number for the Data Management Service. The
@@ -76,7 +78,11 @@ param(
 
     # Only required with local builds and testing.
     [switch]
-    $IsLocalBuild
+    $IsLocalBuild,
+
+    # Only required with E2E testing.
+    [switch]
+    $EnableOpenSearch
 )
 
 $solutionRoot = "$PSScriptRoot/src"
@@ -148,6 +154,24 @@ function PublishBackendInstaller {
     }
 }
 
+function SetQueryHandler {
+    param (
+        # E2E test directory
+        [string]
+        $E2EDirectory
+    )
+
+    $appSettingsPath = Join-Path -Path $E2EDirectory -ChildPath "appsettings.json"
+    $json = Get-Content $appSettingsPath -Raw | ConvertFrom-Json
+    if ($EnableOpenSearch) {
+        $json.QueryHandler = "opensearch"
+    }
+    else {
+        $json.QueryHandler = "postgresql"
+    }
+    $json | ConvertTo-Json -Depth 32 | Set-Content $appSettingsPath
+}
+
 function RunTests {
     param (
         # File search filter
@@ -173,10 +197,9 @@ function RunTests {
 
         if ($Filter.Equals("*.Tests.Unit")) {
             Invoke-Execute {
-                #Execution with coverage
-                # Threshold need to be defined
+                # Execution with coverlet to generate code coverage analysis
                 coverlet $($_) `
-                    --target dotnet --targetargs "test $target --logger:console --logger:trx --nologo"`
+                    --target dotnet --targetargs "test $target --logger:console --logger:trx --nologo --blame"`
                     --threshold $thresholdCoverage `
                     --threshold-type line `
                     --threshold-type branch `
@@ -190,9 +213,15 @@ function RunTests {
             $fileNameNoExt = $_.Name.subString(0, $_.Name.length - 4)
             $trx = "$testResults/$fileNameNoExt"
 
+            # Set Query Handler for E2E tests
+            if ($Filter -like "*E2E*") {
+                $dirPath = Split-Path -parent $($_)
+                SetQueryHandler($dirPath)
+            }
+
             Invoke-Execute {
                 dotnet test $target `
-                    --logger "trx;LogFileName=$trx" `
+                    --logger "trx;LogFileName=$trx.trx" `
                     --logger "console" `
                     --nologo
             }
@@ -204,12 +233,27 @@ function UnitTests {
     Invoke-Execute { RunTests -Filter "*.Tests.Unit" }
 }
 
+function IntegrationTests {
+    Invoke-Execute { RunTests -Filter "*.Test.Integration" }
+}
+
 function RunE2E {
     Invoke-Execute { RunTests -Filter "*.Tests.E2E" }
 }
 
 function E2ETests {
-    Invoke-Step { DockerBuild }
+    if ($EnableOpenSearch) {
+        try {
+            Push-Location eng/docker-compose/
+            ./start-local-dms.ps1 "./.env.e2e"
+        }
+        finally {
+            Pop-Location
+        }
+    }
+    else {
+        Invoke-Step { DockerBuild }
+    }
     Invoke-Step { RunE2E }
 }
 
@@ -265,7 +309,7 @@ function Invoke-Clean {
 
 function Invoke-TestExecution {
     param (
-        [ValidateSet("E2ETests", "UnitTests",
+        [ValidateSet("E2ETests", "UnitTests", "IntegrationTests",
             ErrorMessage = "Please specify a valid Test Type name from the list.",
             IgnoreCase = $true)]
         # File search filter
@@ -275,6 +319,7 @@ function Invoke-TestExecution {
     switch ($Filter) {
         E2ETests { Invoke-Step { E2ETests } }
         UnitTests { Invoke-Step { UnitTests } }
+        IntegrationTests { Invoke-Step { IntegrationTests } }
         Default { "Unknow Test Type" }
     }
 }
@@ -317,7 +362,7 @@ function Invoke-PushPackage {
 }
 
 $dockerTagBase = "local"
-$dockerTagDMS = "$($dockerTagBase)/edfi-data-management-service"
+$dockerTagDMS = "$($dockerTagBase)/data-management-service"
 
 function DockerBuild {
     Push-Location src/
@@ -326,7 +371,7 @@ function DockerBuild {
 }
 
 function DockerRun {
-    &docker run --rm -p 8080:8080 -d $dockerTagDMS
+    &docker run --rm -p 8080:8080 --env-file ./src/.env -d $dockerTagDMS
 }
 
 function Run {
@@ -354,6 +399,7 @@ Invoke-Main {
         }
         UnitTest { Invoke-TestExecution UnitTests }
         E2ETest { Invoke-TestExecution E2ETests }
+        IntegrationTest { Invoke-TestExecution IntegrationTests }
         Coverage { Invoke-Coverage }
         Package { Invoke-BuildPackage }
         Push { Invoke-PushPackage }

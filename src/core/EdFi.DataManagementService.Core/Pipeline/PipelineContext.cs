@@ -5,8 +5,9 @@
 
 using System.Text.Json.Nodes;
 using EdFi.DataManagementService.Core.ApiSchema;
-using EdFi.DataManagementService.Core.Backend;
+using EdFi.DataManagementService.Core.External.Backend.Model;
 using EdFi.DataManagementService.Core.External.Frontend;
+using EdFi.DataManagementService.Core.External.Model;
 using EdFi.DataManagementService.Core.Model;
 
 namespace EdFi.DataManagementService.Core.Pipeline;
@@ -75,7 +76,12 @@ internal class PipelineContext(FrontendRequest _frontendRequest, RequestMethod _
     public JsonNode ParsedBody { get; set; } = No.JsonNode;
 
     /// <summary>
-    /// Pagination parameters for get
+    /// Pagination parameters for GET by query
     /// </summary>
     public PaginationParameters PaginationParameters { get; set; } = No.PaginationParameters;
+
+    /// <summary>
+    /// Query elements for GET by query
+    /// </summary>
+    public QueryElement[] QueryElements { get; set; } = [];
 }

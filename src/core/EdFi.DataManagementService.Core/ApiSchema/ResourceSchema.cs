@@ -6,6 +6,7 @@
 using System.Text.Json.Nodes;
 using EdFi.DataManagementService.Core.ApiSchema.Extensions;
 using EdFi.DataManagementService.Core.ApiSchema.Model;
+using EdFi.DataManagementService.Core.External.Model;
 using EdFi.DataManagementService.Core.Model;
 
 namespace EdFi.DataManagementService.Core.ApiSchema;
@@ -15,10 +16,10 @@ namespace EdFi.DataManagementService.Core.ApiSchema;
 /// </summary>
 internal class ResourceSchema(JsonNode _resourceSchemaNode)
 {
-    private readonly Lazy<MetaEdResourceName> _resourceName =
+    private readonly Lazy<ResourceName> _resourceName =
         new(() =>
         {
-            return new MetaEdResourceName(
+            return new ResourceName(
                 _resourceSchemaNode["resourceName"]?.GetValue<string>()
                     ?? throw new InvalidOperationException(
                         "Expected resourceName to be on ResourceSchema, invalid ApiSchema"
@@ -29,7 +30,7 @@ internal class ResourceSchema(JsonNode _resourceSchemaNode)
     /// <summary>
     /// The ResourceName of this resource, taken from the resourceName
     /// </summary>
-    public MetaEdResourceName ResourceName => _resourceName.Value;
+    public ResourceName ResourceName => _resourceName.Value;
 
     private readonly Lazy<bool> _isSchoolYearEnumeration =
         new(() =>
@@ -130,8 +131,8 @@ internal class ResourceSchema(JsonNode _resourceSchemaNode)
 
             return equalityConstraintsJsonArray.Select(x =>
             {
-                var sourceJsonPath = new JsonPath(x!["sourceJsonPath"]!.GetValue<string>());
-                var targetJsonPath = new JsonPath(x!["targetJsonPath"]!.GetValue<string>());
+                JsonPath sourceJsonPath = new(x!["sourceJsonPath"]!.GetValue<string>());
+                JsonPath targetJsonPath = new(x!["targetJsonPath"]!.GetValue<string>());
 
                 return new EqualityConstraint(sourceJsonPath, targetJsonPath);
             });
@@ -180,12 +181,12 @@ internal class ResourceSchema(JsonNode _resourceSchemaNode)
         new(() =>
         {
             return _resourceSchemaNode["numericJsonPaths"]
-                       ?.AsArray()
-                       .GetValues<string>()
-                       .Select(x => new JsonPath(x))
-                   ?? throw new InvalidOperationException(
-                       "Expected numericJsonPaths to be on ResourceSchema, invalid ApiSchema"
-                   );
+                    ?.AsArray()
+                    .GetValues<string>()
+                    .Select(x => new JsonPath(x))
+                ?? throw new InvalidOperationException(
+                    "Expected numericJsonPaths to be on ResourceSchema, invalid ApiSchema"
+                );
         });
 
     /// <summary>
@@ -243,8 +244,33 @@ internal class ResourceSchema(JsonNode _resourceSchemaNode)
     /// The list of DocumentPaths would be the object values of the keys "EndTime", "GradeLevelDescriptor"
     /// and "School".
     /// </summary>
-
     public IEnumerable<DocumentPath> DocumentPaths => _documentPaths.Value;
+
+    public readonly Lazy<IEnumerable<QueryField>> _queryFields =
+        new(() =>
+        {
+            JsonNode queryFieldMapping =
+                _resourceSchemaNode["queryFieldMapping"]
+                ?? throw new InvalidOperationException(
+                    "Expected queryFieldMapping to be on ResourceSchema, invalid ApiSchema"
+                );
+            return queryFieldMapping
+                .AsObject()
+                .AsEnumerable()
+                .Select(queryField => new QueryField(
+                    queryField.Key,
+                    queryField.Value?.AsArray().GetValues<string>().Select(x => new JsonPath(x)).ToArray()
+                        ?? throw new InvalidOperationException(
+                            "Expected queryField to be on queryFieldMapping, invalid ApiSchema"
+                        )
+                ));
+        });
+
+    /// <summary>
+    /// The list of QueryFields for this resource. A QueryField is a mapping of a valid query field
+    /// along with a list of document paths that query field should be applied to by a query handler.
+    /// </summary>
+    public IEnumerable<QueryField> QueryFields => _queryFields.Value;
 
     private readonly Lazy<bool> _isSubclass =
         new(() =>
@@ -269,14 +295,14 @@ internal class ResourceSchema(JsonNode _resourceSchemaNode)
     /// The superclass resource name, such as "EducationOrganization", of this resource,
     /// taken from superclassResourceName
     /// </summary>
-    public MetaEdResourceName SuperclassResourceName =>
+    public ResourceName SuperclassResourceName =>
         new(_resourceSchemaNode.SelectNodeValue<string>("superclassResourceName"));
 
     /// <summary>
     /// The superclass project name, such as "EdFi", of this resource,
     /// taken from superclassProjectName
     /// </summary>
-    public MetaEdProjectName SuperclassProjectName =>
+    public ProjectName SuperclassProjectName =>
         new(_resourceSchemaNode.SelectNodeValue<string>("superclassProjectName"));
 
     /// <summary>

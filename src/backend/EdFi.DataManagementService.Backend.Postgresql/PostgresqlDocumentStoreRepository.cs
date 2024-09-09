@@ -8,6 +8,7 @@ using EdFi.DataManagementService.Backend.Postgresql.Operation;
 using EdFi.DataManagementService.Core.External.Backend;
 using EdFi.DataManagementService.Core.External.Interface;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace EdFi.DataManagementService.Backend.Postgresql;
@@ -19,9 +20,12 @@ public class PostgresqlDocumentStoreRepository(
     IUpdateDocumentById _updateDocumentById,
     IUpsertDocument _upsertDocument,
     IDeleteDocumentById _deleteDocumentById,
-    IQueryDocument _queryDocument
+    IQueryDocument _queryDocument,
+    IOptions<DatabaseOptions> _databaseOptions
 ) : IDocumentStoreRepository, IQueryHandler
 {
+    private readonly IsolationLevel _isolationLevel = _databaseOptions.Value.IsolationLevel;
+
     public async Task<UpsertResult> UpsertDocument(IUpsertRequest upsertRequest)
     {
         _logger.LogDebug(
@@ -32,9 +36,14 @@ public class PostgresqlDocumentStoreRepository(
         try
         {
             await using var connection = await _dataSource.OpenConnectionAsync();
-            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            await using var transaction = await connection.BeginTransactionAsync(_isolationLevel);
 
-            UpsertResult result = await _upsertDocument.Upsert(upsertRequest, connection, transaction);
+            UpsertResult result = await _upsertDocument.Upsert(
+                upsertRequest,
+                connection,
+                transaction,
+                upsertRequest.TraceId
+            );
 
             switch (result)
             {
@@ -65,7 +74,7 @@ public class PostgresqlDocumentStoreRepository(
         try
         {
             await using var connection = await _dataSource.OpenConnectionAsync();
-            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            await using var transaction = await connection.BeginTransactionAsync(_isolationLevel);
 
             GetResult result = await _getDocumentById.GetById(getRequest, connection, transaction);
 
@@ -97,12 +106,13 @@ public class PostgresqlDocumentStoreRepository(
         try
         {
             await using var connection = await _dataSource.OpenConnectionAsync();
-            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            await using var transaction = await connection.BeginTransactionAsync(_isolationLevel);
 
             UpdateResult result = await _updateDocumentById.UpdateById(
                 updateRequest,
                 connection,
-                transaction
+                transaction,
+                updateRequest.TraceId
             );
 
             switch (result)
@@ -133,7 +143,7 @@ public class PostgresqlDocumentStoreRepository(
         try
         {
             await using var connection = await _dataSource.OpenConnectionAsync();
-            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            await using var transaction = await connection.BeginTransactionAsync(_isolationLevel);
             DeleteResult result = await _deleteDocumentById.DeleteById(
                 deleteRequest,
                 connection,
@@ -168,7 +178,7 @@ public class PostgresqlDocumentStoreRepository(
         try
         {
             await using var connection = await _dataSource.OpenConnectionAsync();
-            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            await using var transaction = await connection.BeginTransactionAsync(_isolationLevel);
 
             QueryResult result = await _queryDocument.QueryDocuments(queryRequest, connection, transaction);
 

@@ -5,6 +5,7 @@
 
 using System.Text.Json.Nodes;
 using EdFi.DataManagementService.Core.ApiSchema.Model;
+using EdFi.DataManagementService.Core.External.Model;
 using EdFi.DataManagementService.Core.Model;
 using FluentAssertions;
 using NUnit.Framework;
@@ -56,8 +57,8 @@ public class DescriptorDocumentTests
         {
             var documentInfo = descriptorDocument!.ToDocumentInfo(
                 new BaseResourceInfo(
-                    ProjectName: new MetaEdProjectName("ProjectName"),
-                    ResourceName: new MetaEdResourceName("ResourceName"),
+                    ProjectName: new ProjectName("ProjectName"),
+                    ResourceName: new ResourceName("ResourceName"),
                     IsDescriptor: true
                 )
             );

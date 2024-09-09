@@ -24,7 +24,7 @@ public abstract class DatabaseTest : DatabaseTestBase
     public async Task ConnectionSetup()
     {
         Connection = await DataSource!.OpenConnectionAsync();
-        Transaction = await Connection.BeginTransactionAsync(IsolationLevel.Serializable);
+        Transaction = await Connection.BeginTransactionAsync(ConfiguredIsolationLevel);
     }
 
     [TearDown]
@@ -34,29 +34,34 @@ public abstract class DatabaseTest : DatabaseTestBase
         Connection?.Dispose();
     }
 
+    protected static SqlAction CreateSqlAction()
+    {
+        return new SqlAction(NullLogger<SqlAction>.Instance);
+    }
+
     protected static UpsertDocument CreateUpsert()
     {
-        return new UpsertDocument(new SqlAction(), NullLogger<UpsertDocument>.Instance);
+        return new UpsertDocument(CreateSqlAction(), NullLogger<UpsertDocument>.Instance);
     }
 
     protected static UpdateDocumentById CreateUpdate()
     {
-        return new UpdateDocumentById(new SqlAction(), NullLogger<UpdateDocumentById>.Instance);
+        return new UpdateDocumentById(CreateSqlAction(), NullLogger<UpdateDocumentById>.Instance);
     }
 
     protected static GetDocumentById CreateGetById()
     {
-        return new GetDocumentById(new SqlAction(), NullLogger<GetDocumentById>.Instance);
+        return new GetDocumentById(CreateSqlAction(), NullLogger<GetDocumentById>.Instance);
     }
 
     protected static QueryDocument CreateQueryDocument()
     {
-        return new QueryDocument(new SqlAction(), NullLogger<QueryDocument>.Instance);
+        return new QueryDocument(CreateSqlAction(), NullLogger<QueryDocument>.Instance);
     }
 
     protected static DeleteDocumentById CreateDeleteById()
     {
-        return new DeleteDocumentById(new SqlAction(), NullLogger<DeleteDocumentById>.Instance);
+        return new DeleteDocumentById(CreateSqlAction(), NullLogger<DeleteDocumentById>.Instance);
     }
 
     protected static T AsValueType<T, TU>(TU value)
@@ -65,57 +70,89 @@ public abstract class DatabaseTest : DatabaseTestBase
         return (new { Value = value }).ActLike<T>();
     }
 
-    protected static IResourceInfo CreateResourceInfo(string resourceName)
+    protected static ResourceInfo CreateResourceInfo(string resourceName, bool allowIdentityUpdates = false)
     {
-        return (
-            new
-            {
-                ResourceVersion = AsValueType<ISemVer, string>("5.0.0"),
-                AllowIdentityUpdates = false,
-                ProjectName = AsValueType<IMetaEdProjectName, string>("ProjectName"),
-                ResourceName = AsValueType<IMetaEdResourceName, string>(resourceName),
-                IsDescriptor = false
-            }
-        ).ActLike<IResourceInfo>();
+        return new(
+            ResourceVersion: new("5.0.0"),
+            AllowIdentityUpdates: allowIdentityUpdates,
+            ProjectName: new("ProjectName"),
+            ResourceName: new(resourceName),
+            IsDescriptor: false
+        );
     }
 
-    protected static IDocumentInfo CreateDocumentInfo(Guid referentialId, Guid? superclassReferentialIdentity = null)
+    protected static DocumentInfo CreateDocumentInfo(
+        Guid referentialId,
+        DocumentReference[]? documentReferences = null,
+        DescriptorReference[]? descriptorReferences = null,
+        SuperclassIdentity? superclassIdentity = null
+    )
     {
-        return (
-            new
-            {
-                DocumentIdentity = new
-                {
-                    DocumentIdentityElements = new List<IDocumentIdentityElement>
-                    {
-                        new {
-                            IdentityValue = "1",
-                            IdentityJsonPath = AsValueType<IJsonPath, string>("$.identityPath")
-                        }.ActLike<IDocumentIdentityElement>()
-                    }
-                },
-                ReferentialId = new ReferentialId(referentialId),
-                DocumentReferences = new List<IDocumentReference>(),
-                DescriptorReferences = new List<IDocumentReference>(),
-                SuperclassIdentity = null as ISuperclassIdentity,
-                SuperclassReferentialId = superclassReferentialIdentity != null ? new ReferentialId(superclassReferentialIdentity.Value) : (ReferentialId?)null
-            }
-        ).ActLike<IDocumentInfo>();
+        return new(
+            DocumentIdentity: new([new(IdentityValue: "", IdentityJsonPath: new("$"))]),
+            ReferentialId: new ReferentialId(referentialId),
+            DocumentReferences: documentReferences ?? [],
+            DescriptorReferences: descriptorReferences ?? [],
+            SuperclassIdentity: superclassIdentity
+        );
+    }
+
+    public record Reference(string ResourceName, Guid ReferentialIdGuid);
+
+    protected static DocumentReference CreateDocumentReference(Reference reference)
+    {
+        return new(
+            ResourceInfo: CreateResourceInfo(reference.ResourceName),
+            DocumentIdentity: new([]),
+            ReferentialId: new ReferentialId(reference.ReferentialIdGuid)
+        );
+    }
+
+    protected static DescriptorReference CreateDescriptorReference(Reference reference)
+    {
+        return new(
+            ResourceInfo: CreateResourceInfo(reference.ResourceName),
+            DocumentIdentity: new([]),
+            ReferentialId: new ReferentialId(reference.ReferentialIdGuid),
+            Path: new JsonPath()
+        );
+    }
+
+    protected static SuperclassIdentity CreateSuperclassIdentity(string resourceName, Guid referentialIdGuid)
+    {
+        return new(
+            ResourceInfo: CreateResourceInfo(resourceName),
+            DocumentIdentity: new([]),
+            ReferentialId: new ReferentialId(referentialIdGuid)
+        );
+    }
+
+    protected static DocumentReference[] CreateDocumentReferences(Reference[] references)
+    {
+        return references.Select(x => CreateDocumentReference(x)).ToArray();
+    }
+
+    protected static DescriptorReference[] CreateDescriptorReferences(Reference[] references)
+    {
+        return references.Select(x => CreateDescriptorReference(x)).ToArray();
     }
 
     protected static IUpsertRequest CreateUpsertRequest(
         string resourceName,
         Guid documentUuidGuid,
-        Guid referentialId,
+        Guid referentialIdGuid,
         string edfiDocString,
-        Guid? superclassReferentialIdentity = null
+        DocumentReference[]? documentReferences = null,
+        DescriptorReference[]? descriptorReferences = null,
+        SuperclassIdentity? superclassIdentity = null,
+        bool allowIdentityUpdates = false
     )
     {
         return (
             new
             {
-                ResourceInfo = CreateResourceInfo(resourceName),
-                DocumentInfo = CreateDocumentInfo(referentialId, superclassReferentialIdentity),
+                ResourceInfo = CreateResourceInfo(resourceName, allowIdentityUpdates),
+                DocumentInfo = CreateDocumentInfo(referentialIdGuid, documentReferences, descriptorReferences, superclassIdentity),
                 EdfiDoc = JsonNode.Parse(edfiDocString),
                 TraceId = new TraceId("123"),
                 DocumentUuid = new DocumentUuid(documentUuidGuid)
@@ -137,14 +174,18 @@ public abstract class DatabaseTest : DatabaseTestBase
         string resourceName,
         Guid documentUuidGuid,
         Guid referentialIdGuid,
-        string edFiDocString
+        string edFiDocString,
+        DocumentReference[]? documentReferences = null,
+        DescriptorReference[]? descriptorReferences = null,
+        SuperclassIdentity? superclassIdentity = null,
+        bool allowIdentityUpdates = false
     )
     {
         return (
             new
             {
-                ResourceInfo = CreateResourceInfo(resourceName),
-                DocumentInfo = CreateDocumentInfo(referentialIdGuid),
+                ResourceInfo = CreateResourceInfo(resourceName, allowIdentityUpdates),
+                DocumentInfo = CreateDocumentInfo(referentialIdGuid, documentReferences, descriptorReferences, superclassIdentity),
                 EdfiDoc = JsonNode.Parse(edFiDocString),
                 TraceId = new TraceId("123"),
                 DocumentUuid = new DocumentUuid(documentUuidGuid)
@@ -167,7 +208,7 @@ public abstract class DatabaseTest : DatabaseTestBase
     protected static IQueryRequest CreateQueryRequest(
         string resourceName,
         Dictionary<string, string>? searchParameters,
-        IPaginationParameters? paginationParameters
+        PaginationParameters? paginationParameters
     )
     {
         return (
@@ -219,7 +260,7 @@ public abstract class DatabaseTest : DatabaseTestBase
         // Connection and transaction for the setup
         await using var connectionForSetup = await DataSource!.OpenConnectionAsync();
         await using var transactionForSetup = await connectionForSetup.BeginTransactionAsync(
-            IsolationLevel.Serializable
+            IsolationLevel.RepeatableRead
         );
 
         // Run the setup
@@ -234,7 +275,7 @@ public abstract class DatabaseTest : DatabaseTestBase
 
         // Connection and transaction managed in this method for DB transaction 1
         await using var connection1 = await DataSource!.OpenConnectionAsync();
-        await using var transaction1 = await connection1.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var transaction1 = await connection1.BeginTransactionAsync(ConfiguredIsolationLevel);
 
         // Use these for threads to signal each other for coordination
         using EventWaitHandle Transaction1Go = new AutoResetEvent(false);
@@ -255,7 +296,7 @@ public abstract class DatabaseTest : DatabaseTestBase
 
             // Step #3: Create new connection and begin DB transaction 2
             connection2 = await DataSource!.OpenConnectionAsync();
-            transaction2 = await connection2.BeginTransactionAsync(IsolationLevel.Serializable);
+            transaction2 = await connection2.BeginTransactionAsync(ConfiguredIsolationLevel);
 
             // Step #4: Signal to transaction 1 thread to continue in parallel
             Transaction1Go?.Set();
@@ -264,7 +305,15 @@ public abstract class DatabaseTest : DatabaseTestBase
             result2 = await dbOperation2(connection2, transaction2);
 
             // Step #9: DB operation unblocked by DB transaction 1 commit, so now we can commit
-            await transaction2.CommitAsync();
+            try
+            {
+                await transaction2.CommitAsync();
+            }
+            catch (Exception)
+            {
+                //This transaction was completed or rolled back as part of a retry, we must
+                //swallow this exception
+            }
 
             // Step #10: Tell transaction 1 thread we are done
             Transaction1Go?.Set();

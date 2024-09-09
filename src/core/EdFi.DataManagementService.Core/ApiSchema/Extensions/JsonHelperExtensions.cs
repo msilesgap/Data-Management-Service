@@ -35,8 +35,18 @@ internal static class JsonHelperExtensions
                 throw new InvalidOperationException($"Unexpected Json.Path error for '{jsonPathString}'");
             }
 
-            if (result.Matches.Count == 0)
-                return null;
+            try
+            {
+                if (result.Matches.Count == 0)
+                    return null;
+            }
+            catch (System.ArgumentException ae)
+            {
+                throw new InvalidOperationException(
+                    $"JSON value to be parsed is problematic, for example might contain duplicate keys.",
+                    ae
+                );
+            }
 
             if (result.Matches.Count != 1)
             {
@@ -61,7 +71,7 @@ internal static class JsonHelperExtensions
     /// Helper to go from an array JSONPath selection directly to the selected JsonNodes.
     /// Returns an empty array if none are selected.
     /// </summary>
-    public static IEnumerable<JsonNode> SelectNodesFromArrayPath(
+    public static IEnumerable<JsonNode?> SelectNodesFromArrayPath(
         this JsonNode jsonNode,
         string jsonPathString,
         ILogger logger
@@ -86,9 +96,6 @@ internal static class JsonHelperExtensions
 
             return result.Matches.Select(x =>
                 x.Value
-                ?? throw new InvalidOperationException(
-                    $"Unexpected Json.Path error for '{jsonPathString}': returned null for JsonNode"
-                )
             );
         }
         catch (PathParseException)
@@ -107,29 +114,13 @@ internal static class JsonHelperExtensions
         ILogger logger
     )
     {
-        IEnumerable<JsonNode> jsonNodes = SelectNodesFromArrayPath(jsonNode, jsonPathString, logger);
+        IEnumerable<JsonNode?> jsonNodes = SelectNodesFromArrayPath(jsonNode, jsonPathString, logger);
         return jsonNodes.Select(jsonNode =>
         {
             JsonValue result =
-                jsonNode.AsValue() ?? throw new InvalidOperationException("Unexpected JSONPath value error");
+                jsonNode?.AsValue() ?? throw new InvalidOperationException("Unexpected JSONPath value error");
             return result.ToString();
         });
-    }
-
-    /// <summary>
-    /// Helper to go from a scalar JSONPath selection directly to the selected JsonNode.
-    /// Throws if the value does not exist
-    /// </summary>
-    public static JsonNode SelectRequiredNodeFromPath(
-        this JsonNode jsonNode,
-        string jsonPathString,
-        ILogger logger
-    )
-    {
-        JsonNode? result =
-            SelectNodeFromPath(jsonNode, jsonPathString, logger)
-            ?? throw new InvalidOperationException($"Node at path '{jsonPathString}' not found");
-        return result;
     }
 
     /// <summary>
@@ -201,8 +192,7 @@ internal static class JsonHelperExtensions
     /// Helper to replace a boolean data type that was submitted as a string with its actual
     /// boolean value. Does not handle parsing failures as these will be dealt with in validation.
     /// </summary>
-    /// <param name="jsonNode"></param>
-    public static void TryCoerceBooleanToBoolean(this JsonNode jsonNode)
+    public static void TryCoerceStringToBoolean(this JsonNode jsonNode)
     {
         var jsonValue = jsonNode.AsValue();
         if (jsonValue.GetValueKind() == JsonValueKind.String)
@@ -220,7 +210,6 @@ internal static class JsonHelperExtensions
     /// Helper to replace a numeric data type that was submitted as a string with its actual
     /// numeric value. Does not handle parsing failures as these will be dealt with in validation.
     /// </summary>
-    /// <param name="jsonNode"></param>
     public static void TryCoerceStringToNumber(this JsonNode jsonNode)
     {
         var jsonValue = jsonNode.AsValue();
@@ -243,5 +232,24 @@ internal static class JsonHelperExtensions
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Helper to extract a list of JsonNodes as the values of all the properties of a JsonNode
+    /// </summary>
+    /// <param name="jsonNode"></param>
+    public static List<JsonNode> SelectNodesFromPropertyValues(this JsonNode jsonNode)
+    {
+        KeyValuePair<string, JsonNode?>[]? nodeKeys = jsonNode?.AsObject().ToArray();
+
+        if (nodeKeys == null)
+        {
+            throw new InvalidOperationException("Unexpected null");
+        }
+
+        return nodeKeys
+            .Where(x => x.Value != null)
+            .Select(x => x.Value ?? new JsonObject())
+            .ToList();
     }
 }

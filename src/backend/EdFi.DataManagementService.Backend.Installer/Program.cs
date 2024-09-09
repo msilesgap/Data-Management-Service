@@ -12,8 +12,13 @@ namespace EdFi.DataManagementService.Backend.Installer;
 
 public class Options
 {
-    [Option('e', "engine", Required = true, HelpText = "The database engine to deploy. Valid values are 'postgresql' and 'mssql'")]
-    public string? DatabaseEngine { get; set; }
+    [Option(
+        'e',
+        "engine",
+        Required = true,
+        HelpText = "The database engine to deploy. Valid values are 'postgresql' and 'mssql'"
+    )]
+    public string? Datastore { get; set; }
 
     [Option('c', "connectionString", Required = true, HelpText = "The connection string to the database.")]
     public string? ConnectionString { get; set; }
@@ -21,7 +26,8 @@ public class Options
 
 public static class Program
 {
-    static ParserResult<Options>? _parseResult;
+    private static ParserResult<Options>? _parseResult;
+
     public static void Main(string[] args)
     {
         var parser = new Parser(config => config.HelpWriter = null);
@@ -29,13 +35,19 @@ public static class Program
         _parseResult
             .WithParsed(runOptions =>
             {
-                switch (runOptions.DatabaseEngine)
+                switch (runOptions.Datastore)
                 {
                     case "postgresql":
-                        HandleResult(new Postgresql.Deploy.DatabaseDeploy().DeployDatabase(runOptions.ConnectionString!));
+                        HandleResult(
+                            new Postgresql.Deploy.DatabaseDeploy().DeployDatabase(
+                                runOptions.ConnectionString!
+                            )
+                        );
                         break;
                     case "mssql":
-                        HandleResult(new Mssql.Deploy.DatabaseDeploy().DeployDatabase(runOptions.ConnectionString!));
+                        HandleResult(
+                            new Mssql.Deploy.DatabaseDeploy().DeployDatabase(runOptions.ConnectionString!)
+                        );
                         break;
                     default:
                         Console.WriteLine("Invalid database engine specified.");
@@ -65,14 +77,17 @@ public static class Program
 
     private static void DisplayHelp<T>(ParserResult<T> parseResult)
     {
-        var helpText = HelpText.AutoBuild(parseResult, h =>
-        {
-            h.Heading = "Ed-Fi Data Management Service Backend Installer";
-            h.Copyright = string.Empty;
-            h.AutoVersion = false;
-            return h;
-        }, e => e);
+        var helpText = HelpText.AutoBuild(
+            parseResult,
+            h =>
+            {
+                h.Heading = "Ed-Fi Data Management Service Backend Installer";
+                h.Copyright = string.Empty;
+                h.AutoVersion = false;
+                return h;
+            },
+            e => e
+        );
         Console.WriteLine(helpText);
     }
 }
-

@@ -6,8 +6,9 @@
 using System.Text.Json.Nodes;
 using EdFi.DataManagementService.Core.ApiSchema;
 using EdFi.DataManagementService.Core.ApiSchema.Extensions;
-using EdFi.DataManagementService.Core.Model;
+using EdFi.DataManagementService.Core.External.Model;
 using Microsoft.Extensions.Logging;
+using static EdFi.DataManagementService.Core.Extraction.ReferentialIdCalculator;
 
 namespace EdFi.DataManagementService.Core.Extraction;
 
@@ -19,7 +20,7 @@ internal static class DescriptorExtractor
     /// <summary>
     /// Takes an API JSON body for the resource and extracts the descriptor URI reference information from the JSON body.
     /// </summary>
-    public static DocumentReference[] ExtractDescriptors(
+    public static DescriptorReference[] ExtractDescriptors(
         this ResourceSchema resourceSchema,
         JsonNode documentBody,
         ILogger logger
@@ -27,7 +28,7 @@ internal static class DescriptorExtractor
     {
         logger.LogDebug("DescriptorExtractor.Extract");
 
-        List<DocumentReference> result = [];
+        List<DescriptorReference> result = [];
 
         foreach (DocumentPath documentPath in resourceSchema.DocumentPaths)
         {
@@ -53,7 +54,8 @@ internal static class DescriptorExtractor
                 // One descriptor reference per Uri
                 DocumentIdentityElement documentIdentityElement =
                     new(DocumentIdentity.DescriptorIdentityJsonPath, descriptorUri);
-                result.Add(new(resourceInfo, new DocumentIdentity([documentIdentityElement])));
+                DocumentIdentity documentIdentity = new([documentIdentityElement]);
+                result.Add(new(resourceInfo, documentIdentity, ReferentialIdFrom(resourceInfo, documentIdentity), documentPath.Path));
             }
         }
 

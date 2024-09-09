@@ -115,7 +115,7 @@ jobs:
         run: ./build.ps1 Coverage
 
       - name: Upload Coverage Report
-        if: success()
+        if: always()
         uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
         with:
           name: Coverage Report
@@ -126,6 +126,44 @@ jobs:
         uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
         with:
           name: Unit Test Results
+          overwrite: true
+          path: |
+            **/*.trx
+
+  run-integration-tests:
+    name: Run Integration Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: pwsh
+    services:
+      postgres:
+        image: postgres:16.3-alpine
+        options: >-
+          --health-cmd="pg_isready"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+    steps:
+      - name: Checkout the Repo
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Build
+        run: ./build.ps1 Build -Configuration Debug
+
+      - name: Run Integration Tests
+        if: success()
+        run: ./build.ps1 IntegrationTest -Configuration Debug
+
+      - name: Upload Integration Test Results
+        if: always()
+        uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
+        with:
+          name: Integration Test Results
           overwrite: true
           path: |
             **/*.trx
@@ -144,9 +182,9 @@ jobs:
       - name: Build
         run: ./build.ps1 Build -Configuration Debug
 
-      - name: Run End to End Tests
+      - name: Run OpenSearch End to End Tests
         if: success()
-        run: ./build.ps1 E2ETest
+        run: ./build.ps1 E2ETest -EnableOpenSearch
 
       - name: Upload Logs
         if: failure()
@@ -169,7 +207,7 @@ jobs:
   event_file:
     name: Upload Event File
     runs-on: ubuntu-latest
-    needs: [run-unit-tests, run-e2e-tests]
+    needs: [run-unit-tests, run-e2e-tests, run-integration-tests]
     if: always()
     steps:
     - name: Upload

@@ -26,7 +26,13 @@ public record UpdateResult
     /// A failure because referenced documents in the updated document do not exist
     /// </summary>
     /// <param name="ReferencingDocumentInfo">Information about the referencing documents</param>
-    public record UpdateFailureReference(string ReferencingDocumentInfo) : UpdateResult();
+    public record UpdateFailureReference(ResourceName[] ReferencingDocumentInfo) : UpdateResult();
+
+    /// <summary>
+    /// A failure because referenced descriptors in the updated document do not exist
+    /// </summary>
+    /// <param name="InvalidDescriptorReferences">The invalid descriptor references</param>
+    public record UpdateFailureDescriptorReference(List<DescriptorReference> InvalidDescriptorReferences) : UpdateResult();
 
     /// <summary>
     /// A failure because there is a different document with the same identity

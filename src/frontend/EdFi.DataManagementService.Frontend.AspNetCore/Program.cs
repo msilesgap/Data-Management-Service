@@ -6,7 +6,13 @@
 using EdFi.DataManagementService.Backend.Deploy;
 using EdFi.DataManagementService.Frontend.AspNetCore.Configuration;
 using EdFi.DataManagementService.Frontend.AspNetCore.Infrastructure;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+
+// Disable reload to work around .NET file watcher bug on Linux. See:
+// https://github.com/dotnet/runtime/issues/62869
+// https://stackoverflow.com/questions/60295562/turn-reloadonchange-off-in-config-source-for-webapplicationfactory
+Environment.SetEnvironmentVariable("DOTNET_hostBuilder:reloadConfigOnChange", "false");
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServices();
@@ -28,6 +34,8 @@ if (app.Configuration.GetSection(RateLimitOptions.RateLimit).Exists())
 }
 
 app.MapRouteEndpoints();
+
+app.MapHealthChecks("/health");
 
 await app.RunAsync();
 

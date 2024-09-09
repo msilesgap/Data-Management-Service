@@ -6,6 +6,8 @@
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using EdFi.DataManagementService.Core.ApiSchema;
+using EdFi.DataManagementService.Core.Configuration;
+using EdFi.DataManagementService.Core.External.Backend;
 using EdFi.DataManagementService.Core.External.Frontend;
 using EdFi.DataManagementService.Core.External.Interface;
 using EdFi.DataManagementService.Core.External.Model;
@@ -14,7 +16,10 @@ using EdFi.DataManagementService.Core.Middleware;
 using EdFi.DataManagementService.Core.Model;
 using EdFi.DataManagementService.Core.Pipeline;
 using EdFi.DataManagementService.Core.Validation;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Polly;
 
 namespace EdFi.DataManagementService.Core;
 
@@ -29,32 +34,53 @@ internal class ApiService(
     IQueryHandler _queryHandler,
     IMatchingDocumentUuidsValidator matchingDocumentUuidsValidator,
     IEqualityConstraintValidator _equalityConstraintValidator,
-    ILogger<ApiService> _logger
+    ILogger<ApiService> _logger,
+    IOptions<AppSettings> _appSettings,
+    [FromKeyedServices("unknownFailureCircuitBreaker")] ResiliencePipeline _resiliencePipeline
 ) : IApiService
 {
     /// <summary>
     /// The pipeline steps to satisfy an upsert request
     /// </summary>
     private readonly Lazy<PipelineProvider> _upsertSteps =
-        new(
-            () =>
-                new(
-                    [
-                        new CoreLoggingMiddleware(_logger),
-                        new ApiSchemaValidationMiddleware(_apiSchemaProvider, _apiSchemaValidator, _logger),
-                        new ProvideApiSchemaMiddleware(_apiSchemaProvider, _logger),
-                        new ParsePathMiddleware(_logger),
-                        new ParseBodyMiddleware(_logger),
-                        new ValidateEndpointMiddleware(_logger),
-                        new CoerceStringTypeMiddleware(_logger),
-                        new ValidateDocumentMiddleware(_logger, _documentValidator),
-                        new ValidateEqualityConstraintMiddleware(_logger, _equalityConstraintValidator),
-                        new ExtractDocumentInfoMiddleware(_logger),
-                        new BuildResourceInfoMiddleware(_logger),
-                        new UpsertHandler(_documentStoreRepository, _logger)
-                    ]
-                )
-        );
+        new(() =>
+        {
+            var steps = new List<IPipelineStep>();
+            steps.AddRange(
+                [
+                    new CoreLoggingMiddleware(_logger),
+                    new ApiSchemaValidationMiddleware(_apiSchemaProvider, _apiSchemaValidator, _logger),
+                    new ProvideApiSchemaMiddleware(_apiSchemaProvider, _logger),
+                    new ParsePathMiddleware(_logger),
+                    new ParseBodyMiddleware(_logger),
+                    new DuplicatePropertiesMiddleware(_logger),
+                    new ValidateEndpointMiddleware(_logger),
+                    new RejectResourceIdentifierMiddleware(_logger)
+                ]
+            );
+
+            // CoerceFromStringsMiddleware should be immediately before ValidateDocumentMiddleware
+            if (_appSettings.Value.BypassStringTypeCoercion)
+            {
+                _logger.LogDebug("Bypassing CoerceFromStringsMiddleware");
+            }
+            else
+            {
+                steps.Add(new CoerceFromStringsMiddleware(_logger));
+            }
+
+            steps.AddRange(
+                [
+                    new ValidateDocumentMiddleware(_logger, _documentValidator),
+                    new ValidateEqualityConstraintMiddleware(_logger, _equalityConstraintValidator),
+                    new BuildResourceInfoMiddleware(_logger, _appSettings.Value.AllowIdentityUpdateOverrides.Split(',').ToList()),
+                    new ExtractDocumentInfoMiddleware(_logger),
+                    new DisallowDuplicateReferencesMiddleware(_logger),
+                    new UpsertHandler(_documentStoreRepository, _logger, _resiliencePipeline)
+                ]
+            );
+            return new PipelineProvider(steps);
+        });
 
     /// <summary>
     /// The pipeline steps to satisfy a get by id request
@@ -69,16 +95,16 @@ internal class ApiService(
                         new ProvideApiSchemaMiddleware(_apiSchemaProvider, _logger),
                         new ParsePathMiddleware(_logger),
                         new ValidateEndpointMiddleware(_logger),
-                        new BuildResourceInfoMiddleware(_logger),
-                        new GetByIdHandler(_documentStoreRepository, _logger)
+                        new BuildResourceInfoMiddleware(_logger, _appSettings.Value.AllowIdentityUpdateOverrides.Split(',').ToList()),
+                        new GetByIdHandler(_documentStoreRepository, _logger, _resiliencePipeline)
                     ]
                 )
         );
 
     /// <summary>
-    /// The pipeline steps to satisfy a get by resource name request
+    /// The pipeline steps to satisfy a query request
     /// </summary>
-    private readonly Lazy<PipelineProvider> _getByKeySteps =
+    private readonly Lazy<PipelineProvider> _querySteps =
         new(
             () =>
                 new(
@@ -88,9 +114,9 @@ internal class ApiService(
                         new ProvideApiSchemaMiddleware(_apiSchemaProvider, _logger),
                         new ParsePathMiddleware(_logger),
                         new ValidateEndpointMiddleware(_logger),
-                        new BuildResourceInfoMiddleware(_logger),
+                        new BuildResourceInfoMiddleware(_logger, _appSettings.Value.AllowIdentityUpdateOverrides.Split(',').ToList()),
                         new ValidateQueryMiddleware(_logger),
-                        new QueryRequestHandler(_queryHandler, _logger)
+                        new QueryRequestHandler(_queryHandler, _logger, _resiliencePipeline)
                     ]
                 )
         );
@@ -99,26 +125,44 @@ internal class ApiService(
     /// The pipeline steps to satisfy an update request
     /// </summary>
     private readonly Lazy<PipelineProvider> _updateSteps =
-        new(
-            () =>
-                new(
-                    [
-                        new CoreLoggingMiddleware(_logger),
-                        new ApiSchemaValidationMiddleware(_apiSchemaProvider, _apiSchemaValidator, _logger),
-                        new ProvideApiSchemaMiddleware(_apiSchemaProvider, _logger),
-                        new ParsePathMiddleware(_logger),
-                        new ParseBodyMiddleware(_logger),
-                        new ValidateEndpointMiddleware(_logger),
-                        new CoerceStringTypeMiddleware(_logger),
-                        new ValidateDocumentMiddleware(_logger, _documentValidator),
-                        new ValidateMatchingDocumentUuidsMiddleware(_logger, matchingDocumentUuidsValidator),
-                        new ValidateEqualityConstraintMiddleware(_logger, _equalityConstraintValidator),
-                        new ExtractDocumentInfoMiddleware(_logger),
-                        new BuildResourceInfoMiddleware(_logger),
-                        new UpdateByIdHandler(_documentStoreRepository, _logger)
-                    ]
-                )
-        );
+        new(() =>
+        {
+            var steps = new List<IPipelineStep>();
+            steps.AddRange(
+                [
+                    new CoreLoggingMiddleware(_logger),
+                    new ApiSchemaValidationMiddleware(_apiSchemaProvider, _apiSchemaValidator, _logger),
+                    new ProvideApiSchemaMiddleware(_apiSchemaProvider, _logger),
+                    new ParsePathMiddleware(_logger),
+                    new ParseBodyMiddleware(_logger),
+                    new DuplicatePropertiesMiddleware(_logger),
+                    new ValidateEndpointMiddleware(_logger)
+                ]
+            );
+
+            // CoerceFromStringsMiddleware should be immediately before ValidateDocumentMiddleware
+            if (_appSettings.Value.BypassStringTypeCoercion)
+            {
+                _logger.LogDebug("Bypassing CoerceFromStringsMiddleware");
+            }
+            else
+            {
+                steps.Add(new CoerceFromStringsMiddleware(_logger));
+            }
+
+            steps.AddRange(
+                [
+                    new ValidateDocumentMiddleware(_logger, _documentValidator),
+                    new ValidateMatchingDocumentUuidsMiddleware(_logger, matchingDocumentUuidsValidator),
+                    new ValidateEqualityConstraintMiddleware(_logger, _equalityConstraintValidator),
+                    new BuildResourceInfoMiddleware(_logger, _appSettings.Value.AllowIdentityUpdateOverrides.Split(',').ToList()),
+                    new ExtractDocumentInfoMiddleware(_logger),
+                    new DisallowDuplicateReferencesMiddleware(_logger),
+                    new UpdateByIdHandler(_documentStoreRepository, _logger, _resiliencePipeline)
+                ]
+            );
+            return new PipelineProvider(steps);
+        });
 
     /// <summary>
     /// The pipeline steps to satisfy a delete by id request
@@ -133,8 +177,8 @@ internal class ApiService(
                         new ProvideApiSchemaMiddleware(_apiSchemaProvider, _logger),
                         new ParsePathMiddleware(_logger),
                         new ValidateEndpointMiddleware(_logger),
-                        new BuildResourceInfoMiddleware(_logger),
-                        new DeleteByIdHandler(_documentStoreRepository, _logger)
+                        new BuildResourceInfoMiddleware(_logger, _appSettings.Value.AllowIdentityUpdateOverrides.Split(',').ToList()),
+                        new DeleteByIdHandler(_documentStoreRepository, _logger, _resiliencePipeline)
                     ]
                 )
         );
@@ -150,7 +194,7 @@ internal class ApiService(
     }
 
     /// <summary>
-    /// DMS entry point for all API GET by id requests
+    /// DMS entry point for all API GET requests
     /// </summary>
     public async Task<IFrontendResponse> Get(FrontendRequest frontendRequest)
     {
@@ -158,22 +202,20 @@ internal class ApiService(
 
         Match match = UtilityService.PathExpressionRegex().Match(frontendRequest.Path);
 
-        string documentUuidValue;
-        string? documentUuid = string.Empty;
+        string documentUuid = string.Empty;
 
         if (match.Success)
         {
-            documentUuidValue = match.Groups["documentUuid"].Value;
-            documentUuid = documentUuidValue == "" ? null : documentUuidValue;
+            documentUuid = match.Groups["documentUuid"].Value;
         }
 
-        if (documentUuid != null)
+        if (documentUuid != string.Empty)
         {
             await _getByIdSteps.Value.Run(pipelineContext);
         }
         else
         {
-            await _getByKeySteps.Value.Run(pipelineContext);
+            await _querySteps.Value.Run(pipelineContext);
         }
         return pipelineContext.FrontendResponse;
     }
@@ -203,23 +245,10 @@ internal class ApiService(
     /// </summary>
     public IList<IDataModelInfo> GetDataModelInfo()
     {
-        JsonNode schema = _apiSchemaProvider.ApiSchemaRootNode;
-
-        KeyValuePair<string, JsonNode?>[]? projectSchemas = schema["projectSchemas"]?.AsObject().ToArray();
-        if (projectSchemas == null || projectSchemas.Length == 0)
-        {
-            string errorMessage = "No projectSchemas found, ApiSchema.json is invalid";
-            _logger.LogCritical(errorMessage);
-            throw new InvalidOperationException(errorMessage);
-        }
+        var apiSchemaDocument = new ApiSchemaDocument(_apiSchemaProvider.ApiSchemaRootNode, _logger);
 
         IList<IDataModelInfo> result = [];
-        List<JsonNode> projectSchemaNodes = projectSchemas
-            .Where(x => x.Value != null)
-            .Select(x => x.Value ?? new JsonObject())
-            .ToList();
-
-        foreach (JsonNode projectSchemaNode in projectSchemaNodes)
+        foreach (JsonNode projectSchemaNode in apiSchemaDocument.GetAllProjectSchemaNodes())
         {
             var projectName = projectSchemaNode?["projectName"]?.GetValue<string>() ?? string.Empty;
             var projectVersion = projectSchemaNode?["projectVersion"]?.GetValue<string>() ?? string.Empty;
@@ -228,5 +257,15 @@ internal class ApiService(
             result.Add(new DataModelInfo(projectName, projectVersion, description));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Get resource dependencies
+    /// </summary>
+    /// <returns>JSON array ordered by dependency sequence</returns>
+    public JsonArray GetDependencies()
+    {
+        var dependencyCalculator = new DependencyCalculator(_apiSchemaProvider.ApiSchemaRootNode, _logger);
+        return dependencyCalculator.GetDependenciesFromResourceSchema();
     }
 }

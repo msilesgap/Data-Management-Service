@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 using EdFi.DataManagementService.Core.ApiSchema;
 using EdFi.DataManagementService.Core.Model;
 using EdFi.DataManagementService.Core.Pipeline;
+using Json.Pointer;
 using Json.Schema;
 
 namespace EdFi.DataManagementService.Core.Validation;
@@ -36,32 +37,32 @@ internal class DocumentValidator() : IDocumentValidator
 
     public (string[], Dictionary<string, string[]>) Validate(PipelineContext context)
     {
-        if (context.ParsedBody == null || context.ParsedBody == No.JsonNode)
-        {
-            return (["A non-empty request body is required."], []);
-        }
-
         EvaluationOptions validatorEvaluationOptions =
             new() { OutputFormat = OutputFormat.List, RequireFormatValidation = true };
 
         var resourceSchemaValidator = GetSchema(context.ResourceSchema, context.Method);
-        var results = resourceSchemaValidator.Evaluate(
-            context.ParsedBody,
-            validatorEvaluationOptions
-        );
+        var results = resourceSchemaValidator.Evaluate(context.ParsedBody, validatorEvaluationOptions);
 
-        var pruneResult = PruneOverpostedData(context.ParsedBody, results);
+        var overpostPruneResult = PruneOverpostedData(context.ParsedBody, results);
 
-        if (pruneResult is PruneResult.Pruned pruned)
+        if (overpostPruneResult is PruneResult.Pruned pruned)
         {
             // Used pruned body for the remainder of pipeline
             context.ParsedBody = pruned.prunedDocumentBody;
 
             // Now re-evaluate the pruned body
-            results = resourceSchemaValidator.Evaluate(
-                context.ParsedBody,
-                validatorEvaluationOptions
-            );
+            results = resourceSchemaValidator.Evaluate(context.ParsedBody, validatorEvaluationOptions);
+        }
+
+        var nullPruneResult = PruneNullData(context.ParsedBody, results);
+
+        if (nullPruneResult is PruneResult.Pruned nullPruned)
+        {
+            // Used pruned body for the remainder of pipeline
+            context.ParsedBody = nullPruned.prunedDocumentBody;
+
+            // Now re-evaluate the pruned body
+            results = resourceSchemaValidator.Evaluate(context.ParsedBody, validatorEvaluationOptions);
         }
 
         return (new List<string>().ToArray(), ValidationErrorsFrom(results));
@@ -83,9 +84,33 @@ internal class DocumentValidator() : IDocumentValidator
             foreach (var additionalProperty in additionalProperties)
             {
                 JsonObject jsonObject = documentBody.AsObject();
-                var prunedJsonObject = jsonObject.RemoveProperty(
-                    [.. additionalProperty.InstanceLocation]
-                );
+                var prunedJsonObject = jsonObject.RemoveProperty([.. additionalProperty.InstanceLocation]);
+                var prunedDocumentBody = JsonNode.Parse(prunedJsonObject.ToJsonString());
+                Trace.Assert(prunedDocumentBody != null, "Unexpected null after parsing pruned object");
+                documentBody = prunedDocumentBody;
+            }
+
+            return new PruneResult.Pruned(documentBody);
+        }
+
+        PruneResult PruneNullData(JsonNode? documentBody, EvaluationResults evaluationResults)
+        {
+            if (documentBody == null)
+                return new PruneResult.NotPruned();
+
+            var nullProperties = evaluationResults
+                .Details.Where(r =>
+                    r.Errors != null && r.Errors.Values.Any(e => e.StartsWith("Value is \"null\""))
+                )
+                .ToList();
+
+            if (nullProperties.Count == 0)
+                return new PruneResult.NotPruned();
+
+            foreach (var nullProperty in nullProperties)
+            {
+                JsonObject jsonObject = documentBody.AsObject();
+                var prunedJsonObject = jsonObject.RemoveProperty([.. nullProperty.InstanceLocation]);
                 var prunedDocumentBody = JsonNode.Parse(prunedJsonObject.ToJsonString());
                 Trace.Assert(prunedDocumentBody != null, "Unexpected null after parsing pruned object");
                 documentBody = prunedDocumentBody;
@@ -106,8 +131,25 @@ internal class DocumentValidator() : IDocumentValidator
                 }
                 if (detail.Errors != null && detail.Errors.Any())
                 {
-                    foreach (var error in detail.Errors.Select(x => x.Value))
+                    foreach (var errorDetail in detail.Errors)
                     {
+                        // Custom validation error for strings with white spaces
+                        var error = errorDetail.Value;
+                        if (
+                            errorDetail.Key.Equals("pattern", StringComparison.InvariantCultureIgnoreCase)
+                            && error.Contains(
+                                "value is not a match for the indicated regular expression",
+                                StringComparison.InvariantCultureIgnoreCase
+                            )
+                        )
+                        {
+                            error = "cannot contain leading or trailing spaces.";
+                            if (IsEmptyString(detail.InstanceLocation))
+                            {
+                                error = "is required and should not be left empty.";
+                            }
+                        }
+
                         var splitErrors = SplitErrorDetail(error, propertyName);
 
                         foreach (var splitError in splitErrors)
@@ -127,6 +169,22 @@ internal class DocumentValidator() : IDocumentValidator
                 }
             }
             return validationErrors;
+
+            bool IsEmptyString(JsonPointer? instanceLocation)
+            {
+                if (instanceLocation == null)
+                    return false;
+
+                var jsonObject = context.ParsedBody.AsObject();
+                string propertyName = instanceLocation[^1];
+                bool propertyExists = jsonObject.TryGetPropertyValue(propertyName, out var value);
+
+                if (propertyExists && value != null && value.ToString() == string.Empty)
+                {
+                    return true;
+                }
+                return false;
+            }
         }
     }
 
@@ -144,7 +202,8 @@ internal class DocumentValidator() : IDocumentValidator
             {
                 var value = new List<string>();
                 value.Add($"{hit[1].Value} is required.");
-                var additional = propertyName == string.Empty ? "" : propertyName.Replace(":", "").TrimEnd() + ".";
+                var additional =
+                    propertyName == string.Empty ? "" : propertyName.Replace(":", "").TrimEnd() + ".";
                 validations.Add("$." + additional + hit[1].Value, value.ToArray());
             }
         }
@@ -171,10 +230,7 @@ internal abstract record PruneResult
 
 internal static class JsonObjectExtensions
 {
-    internal static JsonObject RemoveProperty(
-        this JsonObject jsonObject,
-        string[] segments
-    )
+    internal static JsonObject RemoveProperty(this JsonObject jsonObject, string[] segments)
     {
         if (segments.Length == 0)
             return jsonObject;
@@ -211,7 +267,10 @@ internal static class JsonObjectExtensions
         }
         else
         {
-            Trace.Assert(false, $"Node is not a JsonObject or JsonArray or invalid index for array: {currentSegment}");
+            Trace.Assert(
+                false,
+                $"Node is not a JsonObject or JsonArray or invalid index for array: {currentSegment}"
+            );
         }
 
         return jsonObject;

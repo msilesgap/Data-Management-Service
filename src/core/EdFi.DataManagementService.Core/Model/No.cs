@@ -61,8 +61,8 @@ internal static class No
     /// </summary>
     public static readonly ResourceInfo ResourceInfo =
         new(
-            ProjectName: new MetaEdProjectName(""),
-            ResourceName: new MetaEdResourceName(""),
+            ProjectName: new ProjectName(""),
+            ResourceName: new ResourceName(""),
             IsDescriptor: false,
             ResourceVersion: new SemVer(""),
             AllowIdentityUpdates: false
@@ -77,30 +77,28 @@ internal static class No
             ReferentialId: new(Guid.Empty),
             DocumentReferences: [],
             DescriptorReferences: [],
-            SuperclassIdentity: null,
-            SuperclassReferentialId: null
+            SuperclassIdentity: null
         );
 
     /// <summary>
     /// The null object for FrontendRequest
     /// </summary>
-    public static readonly FrontendRequest FrontendRequest =
-        new(Body: "{}", Path: "", QueryParameters: [], TraceId: new TraceId(""));
+    public static FrontendRequest CreateFrontendRequest(string traceId) => new(Body: "{}", Path: "", QueryParameters: [], TraceId: new TraceId(traceId));
 
     /// <summary>
     /// The null object for FrontendResponse
     /// </summary>
     public static readonly IFrontendResponse FrontendResponse = new FrontendResponse(
         StatusCode: 503,
-        Body: "",
+        Body: null,
         Headers: []
     );
 
     /// <summary>
     /// A constructor of a PipelineContext initialized with null objects
     /// </summary>
-    public static PipelineContext PipelineContext()
+    public static PipelineContext PipelineContext(string traceId = "")
     {
-        return new PipelineContext(FrontendRequest, RequestMethod.GET);
+        return new PipelineContext(CreateFrontendRequest(traceId), RequestMethod.GET);
     }
 }

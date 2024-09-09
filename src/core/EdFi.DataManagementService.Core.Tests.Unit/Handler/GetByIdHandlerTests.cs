@@ -13,6 +13,7 @@ using EdFi.DataManagementService.Core.Pipeline;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
+using Polly;
 using static EdFi.DataManagementService.Core.External.Backend.GetResult;
 using static EdFi.DataManagementService.Core.Tests.Unit.TestHelper;
 
@@ -23,7 +24,7 @@ public class GetByIdHandlerTests
 {
     internal static IPipelineStep Handler(IDocumentStoreRepository documentStoreRepository)
     {
-        return new GetByIdHandler(documentStoreRepository, NullLogger.Instance);
+        return new GetByIdHandler(documentStoreRepository, NullLogger.Instance, ResiliencePipeline.Empty);
     }
 
     [TestFixture]
@@ -54,7 +55,7 @@ public class GetByIdHandlerTests
         public void It_has_the_correct_response()
         {
             context.FrontendResponse.StatusCode.Should().Be(200);
-            context.FrontendResponse.Body.Should().Be(Repository.ResponseBody);
+            context.FrontendResponse.Body?.AsValue().ToString().Should().Be(Repository.ResponseBody);
         }
     }
 
@@ -99,7 +100,8 @@ public class GetByIdHandlerTests
             }
         }
 
-        private readonly PipelineContext context = No.PipelineContext();
+        private static readonly string _traceId = "xyz";
+        private readonly PipelineContext context = No.PipelineContext(_traceId);
 
         [SetUp]
         public async Task Setup()
@@ -112,7 +114,25 @@ public class GetByIdHandlerTests
         public void It_has_the_correct_response()
         {
             context.FrontendResponse.StatusCode.Should().Be(500);
-            context.FrontendResponse.Body.Should().Be(Repository.ResponseBody);
+
+            var expected = $$"""
+{
+  "error": "FailureMessage",
+  "correlationId": "{{_traceId}}"
+}
+""";
+
+            context.FrontendResponse.Body.Should().NotBeNull();
+            JsonNode
+                .DeepEquals(context.FrontendResponse.Body, JsonNode.Parse(expected))
+                .Should()
+                .BeTrue(
+                    $"""
+expected: {expected}
+
+actual: {context.FrontendResponse.Body}
+"""
+                );
         }
     }
 }

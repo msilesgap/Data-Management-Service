@@ -97,9 +97,9 @@ public class MetadataModuleTests
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         jsonContent.Should().NotBeNull();
-        section1.Should().Contain("resources");
-        section2.Should().Contain("descriptors");
-        section3.Should().Contain("discovery");
+        section1.Should().Contain("Resources");
+        section2.Should().Contain("Descriptors");
+        section3.Should().Contain("Discovery");
     }
 
     [Test]
@@ -202,13 +202,6 @@ public class MetadataModuleTests
     public async Task Metadata_Returns_Dependencies()
     {
         // Arrange
-        var contentProvider = A.Fake<IContentProvider>();
-
-        var json = """[{"name": "dependency1"},{"name": "dependency2"}]""";
-        JsonNode _dependencyJson = JsonNode.Parse(json)!;
-
-        A.CallTo(() => contentProvider.LoadJsonContent(A<string>.Ignored)).Returns(_dependencyJson);
-
         var httpContext = A.Fake<HttpContext>();
 
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -217,7 +210,6 @@ public class MetadataModuleTests
             builder.ConfigureServices(
                 (collection) =>
                 {
-                    collection.AddTransient((x) => contentProvider);
                     collection.AddTransient(x => httpContext);
                 }
             );
@@ -229,11 +221,11 @@ public class MetadataModuleTests
         var content = await response.Content.ReadAsStringAsync();
 
         var jsonContent = JsonNode.Parse(content);
-        var name = jsonContent?[0]?["name"]?.GetValue<string>();
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         jsonContent.Should().NotBeNull();
-        name.Should().Be("dependency1");
+        jsonContent?[0]!["resource"]?.GetValue<string>().Should().Be("/ed-fi/absenceEventCategoryDescriptors");
+        jsonContent?[0]!["order"]?.GetValue<int>().Should().Be(1);
     }
 }

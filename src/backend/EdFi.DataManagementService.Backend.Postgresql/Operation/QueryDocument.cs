@@ -26,24 +26,32 @@ public class QueryDocument(ISqlAction _sqlAction, ILogger<QueryDocument> _logger
         NpgsqlTransaction transaction
     )
     {
-        _logger.LogDebug("Entering GetDocumentByKey.QueryDocuments - {TraceId}", queryRequest.TraceId);
+        _logger.LogDebug("Entering QueryDocument.QueryDocuments - {TraceId}", queryRequest.TraceId);
         try
         {
             string resourceName = queryRequest.ResourceInfo.ResourceName.Value;
 
             return new QueryResult.QuerySuccess(
-                await _sqlAction.GetAllDocuments(
+                await _sqlAction.GetAllDocumentsByResourceName(
                     resourceName,
                     queryRequest.PaginationParameters,
                     connection,
-                    transaction
+                    transaction,
+                    queryRequest.TraceId
                 ),
-                queryRequest.PaginationParameters.totalCount ? await _sqlAction.GetTotalDocuments(resourceName, connection, transaction) : null
+                queryRequest.PaginationParameters.TotalCount
+                    ? await _sqlAction.GetTotalDocumentsForResourceName(
+                        resourceName,
+                        connection,
+                        transaction,
+                        queryRequest.TraceId
+                    )
+                    : null
             );
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "GetDocumentByKey.QueryDocuments failure - {TraceId}", queryRequest.TraceId);
+            _logger.LogError(ex, "QueryDocument.QueryDocuments failure - {TraceId}", queryRequest.TraceId);
             return new QueryResult.UnknownFailure("Unknown Failure");
         }
     }

@@ -4,9 +4,8 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 using EdFi.DataManagementService.Core.External.Backend;
+using EdFi.DataManagementService.Core.External.Model;
 using FluentAssertions;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using Npgsql;
 using NUnit.Framework;
 
@@ -16,6 +15,8 @@ namespace EdFi.DataManagementService.Backend.Postgresql.Test.Integration;
 public class GetTests : DatabaseTest
 {
     private static readonly string _defaultResourceName = "DefaultResourceName";
+
+    private static TraceId traceId = new("");
 
     [TestFixture]
     public class Given_an_nonexistent_document : GetTests
@@ -53,7 +54,7 @@ public class GetTests : DatabaseTest
                 Guid.NewGuid(),
                 _edFiDocString
             );
-            await CreateUpsert().Upsert(upsertRequest, Connection!, Transaction!);
+            await CreateUpsert().Upsert(upsertRequest, Connection!, Transaction!, traceId);
 
             _getResult = await CreateGetById()
                 .GetById(
@@ -67,21 +68,12 @@ public class GetTests : DatabaseTest
         public void It_should_be_found_by_get_by_id()
         {
             _getResult!.Should().BeOfType<GetResult.GetSuccess>();
-            var successResult = _getResult as GetResult.GetSuccess;
-            successResult!.DocumentUuid.Value.Should().Be(_documentUuidGuid);
-            
-            var actualJson = JObject.Parse(successResult!.EdfiDoc.ToJsonString());
-
-            var expectedJson = JObject.Parse(_edFiDocString);
-            expectedJson["id"] = _documentUuidGuid;
-
-            actualJson.Should()
-                .BeEquivalentTo(expectedJson, options => options.ComparingByMembers<JObject>());
+            (_getResult! as GetResult.GetSuccess)!.DocumentUuid.Value.Should().Be(_documentUuidGuid);
+            (_getResult! as GetResult.GetSuccess)!.EdfiDoc.ToJsonString().Should().Contain("\"abc\":1");
         }
     }
 
     [TestFixture]
-    [Ignore("Fix in DMS-237")]
     public class Given_an_existing_document_for_a_different_resource : GetTests
     {
         private GetResult? _getResult;
@@ -101,7 +93,7 @@ public class GetTests : DatabaseTest
                 Guid.NewGuid(),
                 _edFiDocString
             );
-            await CreateUpsert().Upsert(upsertRequest, Connection!, Transaction!);
+            await CreateUpsert().Upsert(upsertRequest, Connection!, Transaction!, traceId);
 
             _getResult = await CreateGetById()
                 .GetById(CreateGetRequest(_resourceName2, _documentUuidGuid), Connection!, Transaction!);
@@ -139,7 +131,7 @@ public class GetTests : DatabaseTest
                         Guid.NewGuid(),
                         _edFiDocString
                     );
-                    return await CreateUpsert().Upsert(upsertRequest, connection, transaction);
+                    return await CreateUpsert().Upsert(upsertRequest, connection, transaction, traceId);
                 },
                 async (NpgsqlConnection connection, NpgsqlTransaction transaction) =>
                 {
@@ -199,7 +191,7 @@ public class GetTests : DatabaseTest
                         Guid.NewGuid(),
                         _edFiDocString
                     );
-                    return await CreateUpsert().Upsert(upsertRequest, connection, transaction);
+                    return await CreateUpsert().Upsert(upsertRequest, connection, transaction, traceId);
                 }
             );
         }

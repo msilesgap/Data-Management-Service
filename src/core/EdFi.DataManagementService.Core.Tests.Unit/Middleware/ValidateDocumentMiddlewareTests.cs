@@ -40,12 +40,23 @@ public class ValidateDocumentMiddlewareTests
                     new JsonSchemaBuilder()
                         .Type(SchemaValueType.Object)
                         .Properties(
-                            ("gradeLevelDescriptor", new JsonSchemaBuilder().Type(SchemaValueType.String))
+                            ("gradeLevelDescriptor", new JsonSchemaBuilder().Type(SchemaValueType.String)),
+                            ("optionalNested", new JsonSchemaBuilder().Type(SchemaValueType.String))
                         )
                         .Required("gradeLevelDescriptor")
                         .AdditionalProperties(false)
                 ),
-                ("nameOfInstitution", new JsonSchemaBuilder().Type(SchemaValueType.String)),
+                (
+                    "nameOfInstitution",
+                    new JsonSchemaBuilder().Type(SchemaValueType.String).Pattern("^(?!\\s*$).+")
+                ),
+                (
+                    "identityProperty",
+                    new JsonSchemaBuilder().Type(SchemaValueType.String).Pattern("^(?!\\s)(.*\\S)$")
+                ),
+                ("optionalProperty", new JsonSchemaBuilder().Type(SchemaValueType.String)),
+                ("optionalNumber", new JsonSchemaBuilder().Type(SchemaValueType.Number)),
+                ("optionalBoolean", new JsonSchemaBuilder().Type(SchemaValueType.Boolean)),
                 ("webSite", new JsonSchemaBuilder().Type(SchemaValueType.String).MinLength(5).MaxLength(10)),
                 (
                     "educationOrganizationCategories",
@@ -55,7 +66,10 @@ public class ValidateDocumentMiddlewareTests
                             new JsonSchemaBuilder()
                                 .Type(SchemaValueType.Object)
                                 .Properties(
-                                    ("educationOrganizationCategoryDescriptor", new JsonSchemaBuilder().Type(SchemaValueType.String))
+                                    (
+                                        "educationOrganizationCategoryDescriptor",
+                                        new JsonSchemaBuilder().Type(SchemaValueType.String)
+                                    )
                                 )
                                 .Required("educationOrganizationCategoryDescriptor")
                                 .AdditionalProperties(false)
@@ -110,43 +124,6 @@ public class ValidateDocumentMiddlewareTests
         }
 
         return _context;
-    }
-
-    [TestFixture]
-    public class Given_An_Empty_Body : ValidateDocumentMiddlewareTests
-    {
-        private PipelineContext _context = No.PipelineContext();
-
-        [SetUp]
-        public async Task Setup()
-        {
-            var frontEndRequest = new FrontendRequest(
-                "ed-fi/schools",
-                Body: null,
-                QueryParameters: [],
-                new TraceId("traceId")
-            );
-            _context = Context(frontEndRequest, RequestMethod.POST);
-            await Middleware().Execute(_context, Next());
-        }
-
-        [Test]
-        public void It_has_a_response()
-        {
-            _context?.FrontendResponse.Should().NotBe(No.FrontendResponse);
-        }
-
-        [Test]
-        public void It_returns_status_400()
-        {
-            _context?.FrontendResponse.StatusCode.Should().Be(400);
-        }
-
-        [Test]
-        public void It_returns_message_body()
-        {
-            _context?.FrontendResponse.Body.Should().Contain("A non-empty request body is required");
-        }
     }
 
     [TestFixture]
@@ -241,25 +218,96 @@ public class ValidateDocumentMiddlewareTests
         [Test]
         public void It_should_not_contain_objectOverpost()
         {
-            _context?.ParsedBody.ToJsonString().Should().NotContain("\"objectOverpost\": { \"x\": \"overPostedValue\"}");
+            _context
+                ?.ParsedBody.ToJsonString()
+                .Should()
+                .NotContain("\"objectOverpost\": { \"x\": \"overPostedValue\"}");
         }
 
         [Test]
         public void It_should_contain_objectOverpost()
         {
-            _context?.FrontendRequest.Body.Should().Contain(""""objectOverpost": { "x": "overPostedValue"}"""");
+            _context
+                ?.FrontendRequest.Body.Should()
+                .Contain(""""objectOverpost": { "x": "overPostedValue"}"""");
         }
 
         [Test]
         public void It_should_be_correct_parsed_body()
         {
-            _context?.ParsedBody.ToJsonString().Should().Be("""{"schoolId":989,"gradeLevels":{"gradeLevelDescriptor":"grade1"},"nameOfInstitution":"school12","educationOrganizationCategories":[{"educationOrganizationCategoryDescriptor":"School"}]}""");
+            _context
+                ?.ParsedBody.ToJsonString()
+                .Should()
+                .Be(
+                    """{"schoolId":989,"gradeLevels":{"gradeLevelDescriptor":"grade1"},"nameOfInstitution":"school12","educationOrganizationCategories":[{"educationOrganizationCategoryDescriptor":"School"}]}"""
+                );
         }
 
         [Test]
         public void It_should_not_contain_newOverposted_in_educationOrganizationCategories()
         {
-            _context?.ParsedBody.ToJsonString().Should().Contain("""educationOrganizationCategories":[{"educationOrganizationCategoryDescriptor":"School"}]""");
+            _context
+                ?.ParsedBody.ToJsonString()
+                .Should()
+                .Contain(
+                    """educationOrganizationCategories":[{"educationOrganizationCategoryDescriptor":"School"}]"""
+                );
+        }
+    }
+
+    [TestFixture]
+    public class Given_A_Request_With_Null_Property : ValidateDocumentMiddlewareTests
+    {
+        private PipelineContext _context = No.PipelineContext();
+
+        [SetUp]
+        public async Task Setup()
+        {
+            string jsonData =
+                """{"schoolId": 989, "gradeLevels":{"gradeLevelDescriptor": "grade1"},"nameOfInstitution":"school12", "optionalProperty": null, "optionalNumber": null, "optionalBoolean": null}""";
+
+            var frontEndRequest = new FrontendRequest(
+                "ed-fi/schools",
+                Body: jsonData,
+                QueryParameters: [],
+                new TraceId("traceId")
+            );
+            _context = Context(frontEndRequest, RequestMethod.POST);
+            await Middleware().Execute(_context, Next());
+        }
+
+        [Test]
+        public void It_should_not_have_response()
+        {
+            _context?.FrontendResponse.Should().Be(No.FrontendResponse);
+        }
+    }
+
+    [TestFixture]
+    public class Given_A_Request_With_Null_Nested_Property : ValidateDocumentMiddlewareTests
+    {
+        private PipelineContext _context = No.PipelineContext();
+
+        [SetUp]
+        public async Task Setup()
+        {
+            string jsonData =
+                """{"schoolId": 989, "gradeLevels":{"gradeLevelDescriptor": "grade1", "optionalNested": null},"nameOfInstitution":"school12", "propertyOverPost": "overPostedValue"}""";
+
+            var frontEndRequest = new FrontendRequest(
+                "ed-fi/schools",
+                Body: jsonData,
+                QueryParameters: [],
+                new TraceId("traceId")
+            );
+            _context = Context(frontEndRequest, RequestMethod.POST);
+            await Middleware().Execute(_context, Next());
+        }
+
+        [Test]
+        public void It_should_not_have_response()
+        {
+            _context?.FrontendResponse.Should().Be(No.FrontendResponse);
         }
     }
 
@@ -299,8 +347,8 @@ public class ValidateDocumentMiddlewareTests
         [Test]
         public void It_returns_message_body_with_required_validation_error()
         {
-            _context?.FrontendResponse.Body.Should().Contain("is required");
-            _context?.FrontendResponse.Body.Should().Contain("schoolId");
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("is required");
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("schoolId");
         }
     }
 
@@ -340,8 +388,8 @@ public class ValidateDocumentMiddlewareTests
         [Test]
         public void It_returns_message_body_with_wrong_data_type_validation_error()
         {
-            _context?.FrontendResponse.Body.Should().Contain("schoolId Value is");
-            _context?.FrontendResponse.Body.Should().Contain("integer");
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("schoolId Value is");
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("integer");
         }
     }
 
@@ -381,8 +429,292 @@ public class ValidateDocumentMiddlewareTests
         [Test]
         public void It_returns_message_body_with_required_validation_error()
         {
-            _context?.FrontendResponse.Body.Should().Contain("is required");
-            _context?.FrontendResponse.Body.Should().Contain("id");
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("is required");
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("id");
+        }
+    }
+
+    [TestFixture]
+    public class Given_An_Insert_Request_With_Required_String_Property_Value_Contains_Only_Whitespaces
+        : ValidateDocumentMiddlewareTests
+    {
+        private PipelineContext _context = No.PipelineContext();
+
+        [SetUp]
+        public async Task Setup()
+        {
+            string jsonData =
+                """{"schoolId": 7687,"gradeLevels":{"gradeLevelDescriptor": "grade1"},"nameOfInstitution":"         "}""";
+
+            var frontEndRequest = new FrontendRequest(
+                "ed-fi/schools",
+                Body: jsonData,
+                QueryParameters: [],
+                new TraceId("traceId")
+            );
+            _context = Context(frontEndRequest, RequestMethod.POST);
+            await Middleware().Execute(_context, Next());
+        }
+
+        [Test]
+        public void It_has_a_response()
+        {
+            _context?.FrontendResponse.Should().NotBe(No.FrontendResponse);
+        }
+
+        [Test]
+        public void It_returns_status_400()
+        {
+            _context?.FrontendResponse.StatusCode.Should().Be(400);
+        }
+
+        [Test]
+        public void It_returns_message_body_with_required_validation_error()
+        {
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("nameOfInstitution");
+            _context
+                .FrontendResponse.Body?.ToJsonString()
+                .Should()
+                .Contain("cannot contain leading or trailing spaces");
+        }
+    }
+
+    [TestFixture]
+    public class Given_An_Insert_Request_With_Required_String_Property_Value_Is_Null
+        : ValidateDocumentMiddlewareTests
+    {
+        private PipelineContext _context = No.PipelineContext();
+
+        [SetUp]
+        public async Task Setup()
+        {
+            string jsonData =
+                """{"schoolId": 7687,"gradeLevels":{"gradeLevelDescriptor": "grade1"},"nameOfInstitution": null}""";
+
+            var frontEndRequest = new FrontendRequest(
+                "ed-fi/schools",
+                Body: jsonData,
+                QueryParameters: [],
+                new TraceId("traceId")
+            );
+            _context = Context(frontEndRequest, RequestMethod.POST);
+            await Middleware().Execute(_context, Next());
+        }
+
+        [Test]
+        public void It_has_a_response()
+        {
+            _context?.FrontendResponse.Should().NotBe(No.FrontendResponse);
+        }
+
+        [Test]
+        public void It_returns_status_400()
+        {
+            _context?.FrontendResponse.StatusCode.Should().Be(400);
+        }
+
+        [Test]
+        public void It_returns_message_body_with_required_validation_error()
+        {
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("nameOfInstitution");
+            _context
+                .FrontendResponse.Body?.ToJsonString()
+                .Should()
+                .Contain("nameOfInstitution is required");
+        }
+    }
+
+    [TestFixture]
+    public class Given_An_Insert_Request_With_Required_String_Property_Value_Contains_Whitespaces
+        : ValidateDocumentMiddlewareTests
+    {
+        private PipelineContext _context = No.PipelineContext();
+
+        [SetUp]
+        public async Task Setup()
+        {
+            string jsonData =
+                """{"schoolId": 7687,"gradeLevels":{"gradeLevelDescriptor": "grade1"},"nameOfInstitution":"    school name     "}""";
+
+            var frontEndRequest = new FrontendRequest(
+                "ed-fi/schools",
+                Body: jsonData,
+                QueryParameters: [],
+                new TraceId("traceId")
+            );
+            _context = Context(frontEndRequest, RequestMethod.POST);
+            await Middleware().Execute(_context, Next());
+        }
+
+        [Test]
+        public void It_should_not_have_response()
+        {
+            _context?.FrontendResponse.Should().Be(No.FrontendResponse);
+        }
+    }
+
+    [TestFixture]
+    public class Given_An_Insert_Request_With_Identity_String_Property_Value_Contains_Only_Whitespaces
+        : ValidateDocumentMiddlewareTests
+    {
+        private PipelineContext _context = No.PipelineContext();
+
+        [SetUp]
+        public async Task Setup()
+        {
+            string jsonData =
+                """{"schoolId": 7687,"gradeLevels":{"gradeLevelDescriptor": "grade1"},"nameOfInstitution":"name", "identityProperty":"        "}""";
+
+            var frontEndRequest = new FrontendRequest(
+                "ed-fi/schools",
+                Body: jsonData,
+                QueryParameters: [],
+                new TraceId("traceId")
+            );
+            _context = Context(frontEndRequest, RequestMethod.POST);
+            await Middleware().Execute(_context, Next());
+        }
+
+        [Test]
+        public void It_has_a_response()
+        {
+            _context?.FrontendResponse.Should().NotBe(No.FrontendResponse);
+        }
+
+        [Test]
+        public void It_returns_status_400()
+        {
+            _context?.FrontendResponse.StatusCode.Should().Be(400);
+        }
+
+        [Test]
+        public void It_returns_message_body_with_required_validation_error()
+        {
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("identityProperty");
+            _context
+                .FrontendResponse.Body?.ToJsonString()
+                .Should()
+                .Contain("cannot contain leading or trailing spaces");
+        }
+    }
+
+    [TestFixture]
+    public class Given_An_Insert_Request_With_Identity_String_Property_Value_Contains_Whitespaces
+        : ValidateDocumentMiddlewareTests
+    {
+        private PipelineContext _context = No.PipelineContext();
+
+        [SetUp]
+        public async Task Setup()
+        {
+            string jsonData =
+                """{"schoolId": 7687,"gradeLevels":{"gradeLevelDescriptor": "grade1"},"nameOfInstitution":"name", "identityProperty":"identity value    "}""";
+
+            var frontEndRequest = new FrontendRequest(
+                "ed-fi/schools",
+                Body: jsonData,
+                QueryParameters: [],
+                new TraceId("traceId")
+            );
+            _context = Context(frontEndRequest, RequestMethod.POST);
+            await Middleware().Execute(_context, Next());
+        }
+
+        [Test]
+        public void It_has_a_response()
+        {
+            _context?.FrontendResponse.Should().NotBe(No.FrontendResponse);
+        }
+
+        [Test]
+        public void It_returns_status_400()
+        {
+            _context?.FrontendResponse.StatusCode.Should().Be(400);
+        }
+
+        [Test]
+        public void It_returns_message_body_with_required_validation_error()
+        {
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("identityProperty");
+            _context
+                .FrontendResponse.Body?.ToJsonString()
+                .Should()
+                .Contain("cannot contain leading or trailing spaces");
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("traceId");
+        }
+    }
+
+    [TestFixture]
+    public class Given_An_Insert_Request_With_Empty_Identity_String_Property : ValidateDocumentMiddlewareTests
+    {
+        private PipelineContext _context = No.PipelineContext();
+
+        [SetUp]
+        public async Task Setup()
+        {
+            string jsonData =
+                """{"schoolId": 7687,"gradeLevels":{"gradeLevelDescriptor": "grade1"},"nameOfInstitution":"name", "identityProperty":""}""";
+
+            var frontEndRequest = new FrontendRequest(
+                "ed-fi/schools",
+                Body: jsonData,
+                QueryParameters: [],
+                new TraceId("traceId")
+            );
+            _context = Context(frontEndRequest, RequestMethod.POST);
+            await Middleware().Execute(_context, Next());
+        }
+
+        [Test]
+        public void It_has_a_response()
+        {
+            _context?.FrontendResponse.Should().NotBe(No.FrontendResponse);
+        }
+
+        [Test]
+        public void It_returns_status_400()
+        {
+            _context?.FrontendResponse.StatusCode.Should().Be(400);
+        }
+
+        [Test]
+        public void It_returns_message_body_with_required_validation_error()
+        {
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("identityProperty");
+            _context
+                .FrontendResponse.Body?.ToJsonString()
+                .Should()
+                .Contain("is required and should not be left empty.");
+            _context.FrontendResponse.Body?.ToJsonString().Should().Contain("traceId");
+        }
+    }
+
+    [TestFixture]
+    public class Given_An_Insert_Request_With_Optional_String_Property_Value_Contains_Whitespaces
+        : ValidateDocumentMiddlewareTests
+    {
+        private PipelineContext _context = No.PipelineContext();
+
+        [SetUp]
+        public async Task Setup()
+        {
+            string jsonData =
+                """{"schoolId": 7687,"gradeLevels":{"gradeLevelDescriptor": "grade1"},"nameOfInstitution":"name", "optionalProperty":"         "}""";
+
+            var frontEndRequest = new FrontendRequest(
+                "ed-fi/schools",
+                Body: jsonData,
+                QueryParameters: [],
+                new TraceId("traceId")
+            );
+            _context = Context(frontEndRequest, RequestMethod.POST);
+            await Middleware().Execute(_context, Next());
+        }
+
+        [Test]
+        public void It_should_not_have_response()
+        {
+            _context?.FrontendResponse.Should().Be(No.FrontendResponse);
         }
     }
 }

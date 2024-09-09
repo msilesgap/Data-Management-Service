@@ -5,6 +5,7 @@
 
 using System.Text.Json.Nodes;
 using EdFi.DataManagementService.Core.ApiSchema.Model;
+using EdFi.DataManagementService.Core.External.Model;
 using EdFi.DataManagementService.Core.Model;
 using FluentAssertions;
 using NUnit.Framework;
@@ -48,8 +49,8 @@ public class SchoolYearEnumerationDocumentTests
         public void It_has_derived_the_document_info()
         {
             var documentInfo = document!.ToDocumentInfo(new BaseResourceInfo(
-                    ProjectName: new MetaEdProjectName("ProjectName"),
-                    ResourceName: new MetaEdResourceName("SchoolYear"),
+                    ProjectName: new ProjectName("ProjectName"),
+                    ResourceName: new ResourceName("SchoolYear"),
                     IsDescriptor: false
                 ));
             documentInfo.DocumentReferences.Should().BeEmpty();

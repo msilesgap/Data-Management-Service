@@ -6,6 +6,8 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using EdFi.DataManagementService.Core.Model;
+using Json.More;
+using Json.Path;
 
 namespace EdFi.DataManagementService.Core.Validation;
 
@@ -17,39 +19,64 @@ internal interface IEqualityConstraintValidator
     /// <param name="documentBody"></param>
     /// <param name="equalityConstraints"></param>
     /// <returns>Returns a list of validation failure messages.</returns>
-    string[] Validate(JsonNode? documentBody, IEnumerable<EqualityConstraint> equalityConstraints);
+    Dictionary<string, string[]> Validate(
+        JsonNode? documentBody,
+        IEnumerable<EqualityConstraint> equalityConstraints
+    );
 }
 
 internal class EqualityConstraintValidator : IEqualityConstraintValidator
 {
-    public string[] Validate(JsonNode? documentBody, IEnumerable<EqualityConstraint> equalityConstraints)
+    public Dictionary<string, string[]> Validate(
+        JsonNode? documentBody,
+        IEnumerable<EqualityConstraint> equalityConstraints
+    )
     {
-        List<string> errors = [];
+        var validationErrors = new Dictionary<string, string[]>();
         foreach (var equalityConstraint in equalityConstraints)
         {
-            var sourcePath = Json.Path.JsonPath.Parse(equalityConstraint.SourceJsonPath.Value);
-            var targetPath = Json.Path.JsonPath.Parse(equalityConstraint.TargetJsonPath.Value);
+            var sourcePath = JsonPath.Parse(equalityConstraint.SourceJsonPath.Value);
+            var targetPath = JsonPath.Parse(equalityConstraint.TargetJsonPath.Value);
 
             var sourcePathResult = sourcePath.Evaluate(documentBody);
             var targetPathResult = targetPath.Evaluate(documentBody);
 
-            Trace.Assert(sourcePathResult.Matches != null, "Evaluation of sourcePathResult.Matches resulted in unexpected null");
-            Trace.Assert(targetPathResult.Matches != null, "Evaluation of targetPathResult.Matches resulted in unexpected null");
+            Trace.Assert(
+                sourcePathResult.Matches != null,
+                "Evaluation of sourcePathResult.Matches resulted in unexpected null"
+            );
+            Trace.Assert(
+                targetPathResult.Matches != null,
+                "Evaluation of targetPathResult.Matches resulted in unexpected null"
+            );
 
-            var sourceValues = sourcePathResult.Matches.Select(s => s.Value);
-            var targetValues = targetPathResult.Matches.Select(t => t.Value);
+            var combinedValues = new HashSet<JsonNode?>(sourcePathResult.Matches.Select(s => s.Value), new JsonNodeEqualityComparer());
+            combinedValues.UnionWith(targetPathResult.Matches.Select(t => t.Value));
 
-            if (!AllEqual(sourceValues.Concat(targetValues).ToList()))
+            if (combinedValues.Count > 1)
             {
-                errors.Add($"Constraint failure: document paths {equalityConstraint.SourceJsonPath.Value} and {equalityConstraint.TargetJsonPath.Value} must have the same values");
-            }
-
-            bool AllEqual(IList<JsonNode?> nodes)
-            {
-                return nodes.All(n => JsonNode.DeepEquals(nodes[0], n));
+                string conflictValues = string.Join(", ", combinedValues.Select(x => $"'{x}'"));
+                AddValidationError(validationErrors, sourcePath, conflictValues);
+                AddValidationError(validationErrors, targetPath, conflictValues);
             }
         }
+        return validationErrors;
+    }
 
-        return errors.ToArray();
+    private static void AddValidationError(Dictionary<string, string[]> validationErrors, JsonPath path, string conflictValues)
+    {
+        string segment = path.Segments[^1].ToString().TrimStart('.');
+        string errorMessage = $"All values supplied for '{segment}' must match."
+                + " Review all references (including those higher up in the resource's data)"
+                + $" and align the following conflicting values: {conflictValues}";
+
+        if (validationErrors.TryGetValue(path.ToString(), out string[]? existingErrors))
+        {
+            validationErrors[path.ToString()] = existingErrors.Append(errorMessage).ToArray();
+        }
+        else
+        {
+            validationErrors[path.ToString()] = [errorMessage];
+        }
     }
 }

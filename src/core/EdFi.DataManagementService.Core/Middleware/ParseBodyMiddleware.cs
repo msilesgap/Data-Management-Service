@@ -4,45 +4,90 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 using System.Diagnostics;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using EdFi.DataManagementService.Core.External.Model;
 using EdFi.DataManagementService.Core.Model;
 using EdFi.DataManagementService.Core.Pipeline;
-using EdFi.DataManagementService.Core.Response;
 using Microsoft.Extensions.Logging;
+using static EdFi.DataManagementService.Core.Response.FailureResponse;
+using static EdFi.DataManagementService.Core.UtilityService;
 
 namespace EdFi.DataManagementService.Core.Middleware
 {
     internal class ParseBodyMiddleware(ILogger _logger) : IPipelineStep
     {
+        public static string GenerateFrontendErrorResponse(string errorDetail, TraceId traceId)
+        {
+            string[] errors = { errorDetail };
+
+            var response = ForBadRequest(
+                "The request could not be processed. See 'errors' for details.",
+                traceId,
+                [],
+                errors
+            );
+
+            return JsonSerializer.Serialize(response, SerializerOptions);
+        }
+
+        public static string GenerateFrontendValidationErrorResponse(string errorDetail, TraceId traceId)
+        {
+            var validationErrors = new Dictionary<string, string[]>();
+
+            var value = new List<string> { errorDetail };
+            validationErrors.Add("$.", value.ToArray());
+
+            var response = ForDataValidation(
+                "Data validation failed. See 'validationErrors' for details.",
+                traceId,
+                validationErrors,
+                []
+            );
+
+            return JsonSerializer.Serialize(response, SerializerOptions);
+        }
+
         public async Task Execute(PipelineContext context, Func<Task> next)
         {
             _logger.LogDebug("Entering ParseBodyMiddleware - {TraceId}", context.FrontendRequest.TraceId);
 
-            if (context.FrontendRequest.Body != null)
+            try
             {
-                try
+                if (string.IsNullOrWhiteSpace(context.FrontendRequest.Body))
                 {
-                    JsonNode? body = JsonNode.Parse(context.FrontendRequest.Body);
-
-                    Trace.Assert(body != null, "Unable to parse JSON");
-
-                    context.ParsedBody = body;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(
-                        ex,
-                        "Unable to parse the request body as JSON - {TraceId}",
-                        context.FrontendRequest.TraceId
-                    );
-
                     context.FrontendResponse = new FrontendResponse(
                         StatusCode: 400,
-                        FailureResponse.GenerateFrontendErrorResponse(ex.Message),
+                        GenerateFrontendErrorResponse(
+                            "A non-empty request body is required.",
+                            context.FrontendRequest.TraceId
+                        ),
                         Headers: []
                     );
                     return;
                 }
+
+                JsonNode? body = JsonNode.Parse(context.FrontendRequest.Body);
+
+                Trace.Assert(body != null, "Unable to parse JSON");
+
+                context.ParsedBody = body;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(
+                    ex,
+                    "Unable to parse the request body as JSON - {TraceId}",
+                    context.FrontendRequest.TraceId
+                );
+
+                context.FrontendResponse = new FrontendResponse(
+                    StatusCode: 400,
+                    GenerateFrontendValidationErrorResponse(ex.Message, context.FrontendRequest.TraceId),
+                    Headers: []
+                );
+
+                return;
             }
 
             await next();

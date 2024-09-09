@@ -3,7 +3,7 @@
 # The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 # See the LICENSE and NOTICES files in the project root for more information.
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0.203-alpine3.18@sha256:2a8dca3af111071172b1629c12eefaeca0d6c2954887c4489195771c9e90833c as build
+FROM mcr.microsoft.com/dotnet/sdk:8.0.401-alpine3.20@sha256:658c93223111638f9bb54746679e554b2cf0453d8fb7b9fed32c3c0726c210fe AS build
 
 WORKDIR /source
 
@@ -14,6 +14,7 @@ COPY backend/EdFi.DataManagementService.Backend.Installer/ backend/EdFi.DataMana
 COPY backend/EdFi.DataManagementService.Backend/ backend/EdFi.DataManagementService.Backend/
 COPY backend/EdFi.DataManagementService.Backend.Mssql/ backend/EdFi.DataManagementService.Backend.Mssql/
 COPY backend/EdFi.DataManagementService.Backend.Postgresql/ backend/EdFi.DataManagementService.Backend.Postgresql/
+COPY backend/EdFi.DataManagementService.Backend.OpenSearch/ backend/EdFi.DataManagementService.Backend.OpenSearch/
 COPY .editorconfig .
 
 COPY Directory.Packages.props ./
@@ -29,24 +30,16 @@ WORKDIR /source/backend/EdFi.DataManagementService.Backend.Installer
 RUN dotnet build -c Release --no-restore && \
     dotnet publish -c Release -o /app/Installer --no-restore --no-build
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0.3-alpine3.19-amd64@sha256:a531d9d123928514405b9da9ff28a3aa81bd6f7d7d8cfb6207b66c007e7b3075 AS runtimebase
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.8-alpine3.20-amd64@sha256:98fa594b91cda6cac28d2aae25567730db6f8857367fab7646bdda91bc784b5f AS runtimebase
 
+# bash: used in startup script and debugging
+# postgresql: used to test for PostgreSQL readiness
+# gettext: provides `envsubst`, used to inject env values into appsettings
 RUN apk --no-cache add bash=~5 postgresql16-client=~16 gettext=~0
 
 FROM runtimebase AS setup
 
 ENV ASPNETCORE_HTTP_PORTS=8080
-ENV NEED_DATABASE_SETUP=${NEED_DATABASE_SETUP}
-
-ENV POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER}
-ENV POSTGRES_ADMIN_PASSWORD=${POSTGRES_ADMIN_PASSWORD}
-
-ENV POSTGRES_USER=${POSTGRES_USER}
-ENV POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-
-ENV POSTGRES_PORT=${POSTGRES_PORT}
-ENV POSTGRES_HOST=${POSTGRES_HOST}
-ENV LOG_LEVEL=${LOG_LEVEL}
 
 WORKDIR /app
 

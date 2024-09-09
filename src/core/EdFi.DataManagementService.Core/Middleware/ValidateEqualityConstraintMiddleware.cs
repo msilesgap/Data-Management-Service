@@ -3,8 +3,6 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-using System.Text.Encodings.Web;
-using System.Text.Json;
 using EdFi.DataManagementService.Core.Model;
 using EdFi.DataManagementService.Core.Pipeline;
 using EdFi.DataManagementService.Core.Response;
@@ -24,12 +22,6 @@ internal class ValidateEqualityConstraintMiddleware(
     IEqualityConstraintValidator _equalityConstraintValidator
 ) : IPipelineStep
 {
-    /// <summary>
-    /// Use to avoid HTML escaping in output message that we construct.
-    /// </summary>
-    private static readonly JsonSerializerOptions _serializerOptions =
-        new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-
     public async Task Execute(PipelineContext context, Func<Task> next)
     {
         _logger.LogDebug(
@@ -37,33 +29,34 @@ internal class ValidateEqualityConstraintMiddleware(
             context.FrontendRequest.TraceId
         );
 
-        string[] errors = _equalityConstraintValidator.Validate(
+        Dictionary<string, string[]> validationErrors = _equalityConstraintValidator.Validate(
             context.ParsedBody,
             context.ResourceSchema.EqualityConstraints
         );
 
-        if (errors.Length == 0)
+        if (validationErrors.Count == 0)
         {
             await next();
         }
         else
         {
-            var failureResponse = FailureResponse.ForBadRequest(
-                "The request could not be processed. See 'errors' for details.",
-                null,
-                errors
+            var failureResponse = FailureResponse.ForDataValidation(
+                "Data validation failed. See 'validationErrors' for details.",
+                context.FrontendRequest.TraceId,
+                validationErrors,
+                []
             );
 
             _logger.LogDebug(
                 "'{Status}'.'{EndpointName}' - {TraceId}",
-                failureResponse.status.ToString(),
+                "400",
                 context.PathComponents.EndpointName,
                 context.FrontendRequest.TraceId
             );
 
             context.FrontendResponse = new FrontendResponse(
-                StatusCode: failureResponse.status,
-                Body: JsonSerializer.Serialize(failureResponse, _serializerOptions),
+                StatusCode: 400,
+                Body: failureResponse,
                 Headers: []
             );
             return;

@@ -420,3 +420,9 @@ coveragereport
 # Bulk load related
 .packages/
 .working/
+
+# Smoke test related
+sdk/
+
+
+.env

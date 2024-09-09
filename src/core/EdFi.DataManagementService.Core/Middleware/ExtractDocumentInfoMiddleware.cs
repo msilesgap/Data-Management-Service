@@ -2,10 +2,12 @@
 // Licensed to the Ed-Fi Alliance under one or more agreements.
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
+
 using System.Diagnostics;
 using EdFi.DataManagementService.Core.Extraction;
 using EdFi.DataManagementService.Core.Pipeline;
 using Microsoft.Extensions.Logging;
+using static EdFi.DataManagementService.Core.Extraction.ReferentialIdCalculator;
 
 namespace EdFi.DataManagementService.Core.Middleware;
 
@@ -41,9 +43,8 @@ internal class ExtractDocumentInfoMiddleware(ILogger _logger) : IPipelineStep
                 _logger
             ),
             DocumentIdentity: documentIdentity,
-            ReferentialId: documentIdentity.ToReferentialId(context.ResourceInfo),
-            SuperclassIdentity: superclassIdentity,
-            SuperclassReferentialId: superclassIdentity?.ToReferentialId(superclassIdentity.ResourceInfo)
+            ReferentialId: ReferentialIdFrom(context.ResourceInfo, documentIdentity),
+            SuperclassIdentity: superclassIdentity
         );
 
         await next();

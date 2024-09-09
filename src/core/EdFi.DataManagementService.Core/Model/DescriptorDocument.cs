@@ -5,6 +5,8 @@
 
 using System.Diagnostics;
 using System.Text.Json.Nodes;
+using EdFi.DataManagementService.Core.External.Model;
+using static EdFi.DataManagementService.Core.Extraction.ReferentialIdCalculator;
 
 namespace EdFi.DataManagementService.Core.Model;
 
@@ -14,7 +16,7 @@ namespace EdFi.DataManagementService.Core.Model;
 internal class DescriptorDocument(JsonNode _document)
 {
     // A hardcoded identity path for all descriptor document identities
-    public static readonly JsonPath DescriptorIdentityPath = new("$");
+    public static readonly JsonPath DescriptorIdentityPath = new("$.descriptor");
 
     /// <summary>
     /// Creates a new DocumentIdentity from the DescriptorDocument
@@ -49,11 +51,10 @@ internal class DescriptorDocument(JsonNode _document)
 
         return new(
             DocumentIdentity: documentIdentity,
-            ReferentialId: documentIdentity.ToReferentialId(resourceInfo),
+            ReferentialId: ReferentialIdFrom(resourceInfo, documentIdentity),
             DocumentReferences: [],
             DescriptorReferences: [],
-            SuperclassIdentity: null,
-            SuperclassReferentialId: null
+            SuperclassIdentity: null
         );
     }
 }

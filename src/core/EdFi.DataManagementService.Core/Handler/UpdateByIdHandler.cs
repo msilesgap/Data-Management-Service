@@ -4,83 +4,123 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 using System.Diagnostics;
-using System.Text.Json;
 using EdFi.DataManagementService.Core.Backend;
-using EdFi.DataManagementService.Core.External.Backend;
 using EdFi.DataManagementService.Core.External.Interface;
 using EdFi.DataManagementService.Core.Model;
 using EdFi.DataManagementService.Core.Pipeline;
 using EdFi.DataManagementService.Core.Response;
 using Microsoft.Extensions.Logging;
+using Polly;
 using static EdFi.DataManagementService.Core.External.Backend.UpdateResult;
+using static EdFi.DataManagementService.Core.Handler.Utility;
 
 namespace EdFi.DataManagementService.Core.Handler;
 
 /// <summary>
 /// Handles an update request that has made it through the middleware pipeline steps.
 /// </summary>
-internal class UpdateByIdHandler(IDocumentStoreRepository _documentStoreRepository, ILogger _logger)
-    : IPipelineStep
+internal class UpdateByIdHandler(
+    IDocumentStoreRepository _documentStoreRepository,
+    ILogger _logger,
+    ResiliencePipeline _resiliencePipeline
+) : IPipelineStep
 {
     public async Task Execute(PipelineContext context, Func<Task> next)
     {
         _logger.LogDebug("Entering UpdateByIdHandler - {TraceId}", context.FrontendRequest.TraceId);
         Trace.Assert(context.ParsedBody != null, "Unexpected null Body on Frontend Request from PUT");
 
-        UpdateResult result = await _documentStoreRepository.UpdateDocumentById(
-            new UpdateRequest(
-                DocumentUuid: context.PathComponents.DocumentUuid,
-                ResourceInfo: context.ResourceInfo,
-                DocumentInfo: context.DocumentInfo,
-                EdfiDoc: context.ParsedBody,
-                TraceId: context.FrontendRequest.TraceId
+        var updateResult = await _resiliencePipeline.ExecuteAsync(async t =>
+            await _documentStoreRepository.UpdateDocumentById(
+                new UpdateRequest(
+                    DocumentUuid: context.PathComponents.DocumentUuid,
+                    ResourceInfo: context.ResourceInfo,
+                    DocumentInfo: context.DocumentInfo,
+                    EdfiDoc: context.ParsedBody,
+                    TraceId: context.FrontendRequest.TraceId
+                )
             )
         );
 
         _logger.LogDebug(
             "Document store UpdateDocumentById returned {UpdateResult}- {TraceId}",
-            result.GetType().FullName,
+            updateResult.GetType().FullName,
             context.FrontendRequest.TraceId
         );
 
-        context.FrontendResponse = result switch
+        context.FrontendResponse = updateResult switch
         {
-            UpdateSuccess => new FrontendResponse(
+            UpdateSuccess updateSuccess
+                => new FrontendResponse(
                     StatusCode: 204,
                     Body: null,
                     Headers: [],
                     LocationHeaderPath: PathComponents.ToResourcePath(
-                            context.PathComponents,
-                            ((UpdateSuccess)result).ExistingDocumentUuid
+                        context.PathComponents,
+                        updateSuccess.ExistingDocumentUuid
                     )
                 ),
-            UpdateFailureNotExists => new FrontendResponse(
+            UpdateFailureNotExists
+                => new FrontendResponse(
                     StatusCode: 404,
-                    Body: JsonSerializer.Serialize(FailureResponse.ForNotFound("Resource to update was not found")),
+                    Body: FailureResponse.ForNotFound(
+                        "Resource to update was not found",
+                        traceId: context.FrontendRequest.TraceId
+                    ),
+                    Headers: []
+                ),
+            UpdateFailureDescriptorReference failure
+                => new(
+                    StatusCode: 400,
+                    Body: FailureResponse.ForBadRequest(
+                        "Data validation failed. See 'validationErrors' for details.",
+                        traceId: context.FrontendRequest.TraceId,
+                        failure.InvalidDescriptorReferences.ToDictionary(
+                            d => d.Path.Value,
+                            d =>
+                                d.DocumentIdentity.DocumentIdentityElements.Select(e =>
+                                        $"{d.ResourceInfo.ResourceName.Value} value '{e.IdentityValue}' does not exist."
+                                    )
+                                    .ToArray()
+                        ),
+                        []
+                    ),
                     Headers: []
                 ),
             UpdateFailureReference failure
-                => new FrontendResponse(StatusCode: 409, Body: failure.ReferencingDocumentInfo, Headers: []),
+                => new FrontendResponse(
+                    StatusCode: 409,
+                    Body: FailureResponse.ForInvalidReferences(
+                        failure.ReferencingDocumentInfo,
+                        traceId: context.FrontendRequest.TraceId
+                    ),
+                    Headers: []
+                ),
             UpdateFailureIdentityConflict failure
                 => new FrontendResponse(StatusCode: 400, Body: failure.ReferencingDocumentInfo, Headers: []),
-            UpdateFailureWriteConflict
-                => new FrontendResponse(StatusCode: 409, Body: null, Headers: []),
+            UpdateFailureWriteConflict => new FrontendResponse(StatusCode: 409, Body: null, Headers: []),
             UpdateFailureImmutableIdentity failure
                 => new FrontendResponse(
                     StatusCode: 400,
-                    Body: JsonSerializer.Serialize(
-                        FailureResponse.ForBadRequest(
-                            "The request could not be processed. See 'errors' for details.",
-                            null,
-                            [failure.FailureMessage]
-                        )
-                    ),
+                    Body: FailureResponse.ForImmutableIdentity(
+                            failure.FailureMessage,
+                            traceId: context.FrontendRequest.TraceId
+                        ),
                     Headers: []
                 ),
             UpdateFailureCascadeRequired => new FrontendResponse(StatusCode: 400, Body: null, Headers: []),
             UnknownFailure failure
-                => new FrontendResponse(StatusCode: 500, Body: failure.FailureMessage, Headers: []),
-            _ => new FrontendResponse(StatusCode: 500, Body: "Unknown UpdateResult", Headers: [])
+                => new FrontendResponse(
+                    StatusCode: 500,
+                    Body: ToJsonError(failure.FailureMessage, context.FrontendRequest.TraceId),
+                    Headers: []
+                ),
+            _
+                => new FrontendResponse(
+                    StatusCode: 500,
+                    Body: ToJsonError("Unknown UpdateResult", context.FrontendRequest.TraceId),
+                    Headers: []
+                )
         };
     }
 }

@@ -3,6 +3,8 @@
 // The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using EdFi.DataManagementService.Core.Backend;
 using EdFi.DataManagementService.Core.External.Backend;
 using EdFi.DataManagementService.Core.External.Interface;
@@ -12,6 +14,7 @@ using EdFi.DataManagementService.Core.Pipeline;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
+using Polly;
 using static EdFi.DataManagementService.Core.External.Backend.DeleteResult;
 using static EdFi.DataManagementService.Core.Tests.Unit.TestHelper;
 
@@ -22,7 +25,7 @@ public class DeleteByIdHandlerTests
 {
     internal static IPipelineStep Handler(IDocumentStoreRepository documentStoreRepository)
     {
-        return new DeleteByIdHandler(documentStoreRepository, NullLogger.Instance);
+        return new DeleteByIdHandler(documentStoreRepository, NullLogger.Instance, ResiliencePipeline.Empty);
     }
 
     [TestFixture]
@@ -48,7 +51,7 @@ public class DeleteByIdHandlerTests
         [Test]
         public void It_has_the_correct_response()
         {
-            context.FrontendResponse.StatusCode.Should().Be(200);
+            context.FrontendResponse.StatusCode.Should().Be(204);
             context.FrontendResponse.Body.Should().BeNull();
         }
     }
@@ -86,7 +89,7 @@ public class DeleteByIdHandlerTests
     {
         internal class Repository : NotImplementedDocumentStoreRepository
         {
-            public static readonly string ResponseBody = "ReferencingDocumentInfo";
+            public static readonly string[] ResponseBody = ["ReferencingDocumentInfo"];
 
             public override Task<DeleteResult> DeleteDocumentById(IDeleteRequest deleteRequest)
             {
@@ -107,7 +110,10 @@ public class DeleteByIdHandlerTests
         public void It_has_the_correct_response()
         {
             context.FrontendResponse.StatusCode.Should().Be(409);
-            context.FrontendResponse.Body.Should().Be(Repository.ResponseBody);
+            context
+                .FrontendResponse.Body?.ToJsonString()
+                .Should()
+                .Contain(string.Join(", ", Repository.ResponseBody));
         }
     }
 
@@ -141,6 +147,7 @@ public class DeleteByIdHandlerTests
     [TestFixture]
     public class Given_A_Repository_That_Returns_Unknown_Failure : DeleteByIdHandlerTests
     {
+
         internal class Repository : NotImplementedDocumentStoreRepository
         {
             public static readonly string ResponseBody = "FailureMessage";
@@ -151,7 +158,8 @@ public class DeleteByIdHandlerTests
             }
         }
 
-        private readonly PipelineContext context = No.PipelineContext();
+        private static readonly string _traceId = "xyz";
+        private readonly PipelineContext context = No.PipelineContext(_traceId);
 
         [SetUp]
         public async Task Setup()
@@ -164,7 +172,25 @@ public class DeleteByIdHandlerTests
         public void It_has_the_correct_response()
         {
             context.FrontendResponse.StatusCode.Should().Be(500);
-            context.FrontendResponse.Body.Should().Be(Repository.ResponseBody);
+
+            var expected = $$"""
+{
+  "error": "FailureMessage",
+  "correlationId": "{{_traceId}}"
+}
+""";
+
+            context.FrontendResponse.Body.Should().NotBeNull();
+            JsonNode
+                .DeepEquals(context.FrontendResponse.Body, JsonNode.Parse(expected))
+                .Should()
+                .BeTrue(
+                    $"""
+expected: {expected}
+
+actual: {context.FrontendResponse.Body}
+"""
+                );
         }
     }
 }

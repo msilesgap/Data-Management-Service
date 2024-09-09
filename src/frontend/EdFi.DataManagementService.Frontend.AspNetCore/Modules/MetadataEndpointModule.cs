@@ -6,6 +6,7 @@
 
 using System.Net;
 using System.Text.RegularExpressions;
+using EdFi.DataManagementService.Core.External.Interface;
 using EdFi.DataManagementService.Frontend.AspNetCore.Configuration;
 using EdFi.DataManagementService.Frontend.AspNetCore.Content;
 using EdFi.DataManagementService.Frontend.AspNetCore.Infrastructure.Extensions;
@@ -22,9 +23,9 @@ public partial class MetadataEndpointModule : IEndpointModule
 
     private readonly SpecificationSection[] Sections =
     [
-        new SpecificationSection("resources", string.Empty),
-        new SpecificationSection("descriptors", string.Empty),
-        new SpecificationSection("discovery", "Other")
+        new SpecificationSection("Resources", string.Empty),
+        new SpecificationSection("Descriptors", string.Empty),
+        new SpecificationSection("Discovery", "Other")
     ];
 
     private readonly string ErrorResourcePath = "Invalid resource path";
@@ -44,15 +45,15 @@ public partial class MetadataEndpointModule : IEndpointModule
         {
             dependencies = $"{baseUrl}/dependencies",
             specifications = $"{baseUrl}/specifications",
-            xsdFiles = $"{baseUrl}/xsdMetadata"
+            xsdMetadata = $"{baseUrl}/xsd"
         };
 
         await httpContext.Response.WriteAsJsonAsync(content);
     }
 
-    internal async Task GetDependencies(HttpContext httpContext, IContentProvider contentProvider)
+    internal static async Task GetDependencies(HttpContext httpContext, IApiService apiService)
     {
-        var content = contentProvider.LoadJsonContent("dependencies");
+        var content = apiService.GetDependencies();
         await httpContext.Response.WriteAsSerializedJsonAsync(content);
     }
 
